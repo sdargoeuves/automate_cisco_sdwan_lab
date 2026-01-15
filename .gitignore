@@ -1,0 +1,38 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+*.egg-info/
+*.egg/
+.eggs/
+build/
+dist/
+.pytest_cache/
+.mypy_cache/
+.pytype/
+.pyre/
+.hypothesis/
+.tox/
+.nox/
+.coverage
+.coverage.*
+htmlcov/
+
+# Virtual environments
+.venv/
+venv/
+ENV/
+.env/
+
+# Ruff
+.ruff_cache/
+
+# Logs
+*.log
+logs/
+
+# Editor/OS
+.DS_Store
+Thumbs.db
