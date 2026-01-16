@@ -9,6 +9,9 @@ USERNAME = "admin"
 PASSWORD = "admin@123"
 PORT = "443"
 
+# Netmiko session log
+NETMIKO_SESSION_LOG = "logs/netmiko_session.log"
+
 # Certificate files (same across all devices)
 RSA_KEY = "SDWAN.key"
 ROOT_CERT = "SDWAN.pem"
