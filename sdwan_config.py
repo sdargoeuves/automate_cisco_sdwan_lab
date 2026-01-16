@@ -1,53 +1,88 @@
 from dataclasses import dataclass
 
 
-@dataclass(frozen=True)
+# =============================================================================
+# Shared Configuration Values
+# =============================================================================
+ORG = "ipf-netlab"
+USERNAME = "admin"
+PASSWORD = "admin@123"
+PORT = "443"
+
+# Certificate files (same across all devices)
+RSA_KEY = "SDWAN.key"
+ROOT_CERT = "SDWAN.pem"
+SIGNED_CERT = "NewCertificate.crt"
+
+# Network
+VALIDATOR_IP = "10.1.0.6"  # vBond's IP (used by all devices)
+
+
+# =============================================================================
+# Device-Specific Configuration
+# =============================================================================
+@dataclass
 class ManagerConfig:
     ip: str
-    port: str
-    username: str
-    password: str
-    org: str
-    validator_ip: str
-    country: str
-    state: str
-    city: str
-    rsa_key: str
-    root_cert: str
-    signed_cert: str
-    csr_file: str
-    api_ready_timeout_minutes: int
-    csr_file_timeout_minutes: int
-    initial_config: str
+    port: str = PORT
+    username: str = USERNAME
+    password: str = PASSWORD
+    org: str = ORG
+    validator_ip: str = VALIDATOR_IP
+    country: str = "FI"
+    state: str = "Finland"
+    city: str = "Helsinki"
+    rsa_key: str = RSA_KEY
+    root_cert: str = ROOT_CERT
+    signed_cert: str = SIGNED_CERT
+    csr_file: str = "vmanage_csr"
+    api_ready_timeout_minutes: int = 15
+    csr_file_timeout_minutes: int = 1
+    initial_config: str = ""
 
 
-@dataclass(frozen=True)
+@dataclass
 class ValidatorConfig:
     ip: str
-    port: str
-    username: str
-    password: str
-    org: str
-    initial_config: str
+    port: str = PORT
+    username: str = USERNAME
+    password: str = PASSWORD
+    org: str = ORG
+    validator_ip: str = VALIDATOR_IP
+    rsa_key: str = RSA_KEY
+    root_cert: str = ROOT_CERT
+    signed_cert: str = SIGNED_CERT
+    csr_file: str = "vbond_csr"
+    api_ready_timeout_minutes: int = 15
+    csr_file_timeout_minutes: int = 1
+    initial_config: str = ""
 
 
-@dataclass(frozen=True)
+@dataclass
 class ControllerConfig:
     ip: str
-    port: str
-    username: str
-    password: str
-    org: str
-    initial_config: str
+    port: str = PORT
+    username: str = USERNAME
+    password: str = PASSWORD
+    org: str = ORG
+    validator_ip: str = VALIDATOR_IP
+    rsa_key: str = RSA_KEY
+    root_cert: str = ROOT_CERT
+    signed_cert: str = SIGNED_CERT
+    csr_file: str = "vsmart_csr"
+    initial_config: str = ""
 
 
-@dataclass(frozen=True)
+@dataclass
 class SDWANConfig:
     manager: ManagerConfig
     validator: ValidatorConfig
     controller: ControllerConfig
 
 
+# =============================================================================
+# Initial Configurations (CLI to push on first boot)
+# =============================================================================
 MANAGER_INITIAL_CONFIG = """
 system
 aaa
@@ -68,7 +103,6 @@ allow-service all
 """
 
 VALIDATOR_INITIAL_CONFIG = """
-
 system
 aaa
 user admin
@@ -90,42 +124,40 @@ encapsulation ipsec
 allow-service all
 """
 
-CONTROLLER_INITIAL_CONFIG = ""
+CONTROLLER_INITIAL_CONFIG = """
+system
+aaa
+user admin
+password admin@123
+site-id 255
+organization-name ipf-netlab
+system-ip 10.194.58.15
+vbond 10.1.0.6
+vpn 0
+ip route 0.0.0.0/0 10.1.0.9
+interface eth1
+ip address 10.1.0.10/30
+description "sdwan-controller to inet0"
+no shut
+tunnel-interface
+allow-service all
+"""
 
 
+# =============================================================================
+# Main Configuration Instance
+# =============================================================================
 CONFIG = SDWANConfig(
     manager=ManagerConfig(
         ip="10.194.58.14",
-        port="443",
-        username="admin",
-        password="admin@123",
-        org="ipf-netlab",
-        validator_ip="10.1.0.6",
-        country="FI",
-        state="Finland",
-        city="Helsinki",
-        rsa_key="SDWAN.key",
-        root_cert="SDWAN.pem",
-        signed_cert="NewCertificate.crt",
-        csr_file="vmanage_csr",
-        api_ready_timeout_minutes=15,
-        csr_file_timeout_minutes=1,
         initial_config=MANAGER_INITIAL_CONFIG,
     ),
     validator=ValidatorConfig(
         ip="10.194.58.16",
-        port="443",
-        username="admin",
-        password="admin@123",
-        org="ipf-netlab",
         initial_config=VALIDATOR_INITIAL_CONFIG,
     ),
     controller=ControllerConfig(
         ip="10.194.58.15",
-        port="443",
-        username="admin",
-        password="admin@123",
-        org="ipf-netlab",
         initial_config=CONTROLLER_INITIAL_CONFIG,
     ),
 )

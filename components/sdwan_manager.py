@@ -3,10 +3,87 @@ import time
 import requests
 
 from sdwan_config import ManagerConfig
-from utils.logging import get_logger
 from utils.api import api_call, wait_for_api_ready
-from utils.netmiko import connect_to_device, push_config_from_file, push_initial_config
+from utils.netmiko import (
+    connect_to_device,
+    push_config_from_file,
+    push_initial_config
+)
+from utils.output import Output
 from utils.vshell import read_file_vshell, run_vshell_cmd
+
+
+def run_manager_automation(
+    config: ManagerConfig,
+    initial_config: bool = False,
+    cert: bool = False,
+    config_file: str | None = None,
+):
+    """
+    Orchestrate Manager actions based on CLI flags.
+    """
+    out = Output(__name__)
+    out.log_only(
+        f"Manager run start initial_config={initial_config} cert={cert} config_file={config_file}",
+    )
+    out.header("Automation: MANAGER (vManage)", f"Target: {config.ip}:{config.port}")
+
+    net_connect = None
+
+    if initial_config:
+        out.header("MANAGER: Initial Configuration")
+
+        out.step("Attempting to connect with default credentials...")
+        net_connect = connect_to_device(
+            "cisco_viptela",
+            config.ip,
+            config.username,
+            config.username,
+            exit_on_failure=False,
+        )
+
+        if net_connect:
+            if not config.initial_config.strip():
+                out.warning("Manager initial config is empty; skipping.")
+            else:
+                push_initial_config(net_connect, config.initial_config)
+
+            net_connect.disconnect()
+            net_connect = connect_to_device(
+                "cisco_viptela", config.ip, config.username, config.password
+            )
+        else:
+            out.warning("Default credentials failed, trying configured password...")
+            net_connect = connect_to_device(
+                "cisco_viptela", config.ip, config.username, config.password
+            )
+            out.success(
+                "Already configured with updated password - skipping initial config push"
+            )
+
+    if config_file:
+        if not net_connect:
+            net_connect = connect_to_device(
+                "cisco_viptela", config.ip, config.username, config.password
+            )
+        push_config_from_file(net_connect, config_file)
+
+    if cert:
+        if not net_connect:
+            net_connect = connect_to_device(
+                "cisco_viptela", config.ip, config.username, config.password
+            )
+
+        out.header("MANAGER: Certificate Configuration")
+
+        success = run_certificate_automation(net_connect, config)
+        if not success:
+            net_connect.disconnect()
+            raise SystemExit(1)
+
+    if net_connect:
+        net_connect.disconnect()
+        out.success("Disconnected from Manager")
 
 
 def run_certificate_automation(net_connect, config: ManagerConfig):
@@ -17,14 +94,14 @@ def run_certificate_automation(net_connect, config: ManagerConfig):
         net_connect: Active Netmiko connection to Manager
         config: Config object
     """
-    print("\n" + "=" * 50)
-    print("PART 1: Generate Root Certificate")
-    print("=" * 50)
+    out = Output(__name__)
 
-    print("Generating RSA key...")
+    out.subheader("PART 1: Generate Root Certificate")
+
+    out.step("Generating RSA key...")
     run_vshell_cmd(net_connect, f"openssl genrsa -out {config.rsa_key} 2048")
 
-    print("Generating root certificate...")
+    out.step("Generating root certificate...")
     subj = f"/C={config.country}/ST={config.state}/L={config.city}/O={config.org}/CN={config.org}"
     run_vshell_cmd(
         net_connect,
@@ -33,11 +110,9 @@ def run_certificate_automation(net_connect, config: ManagerConfig):
     )
 
     root_cert_content = read_file_vshell(net_connect, config.root_cert)
-    print("✓ Root certificate created")
+    out.success("Root certificate created")
 
-    print("\n" + "=" * 50)
-    print("PART 2: Configure Manager (vManage)")
-    print("=" * 50)
+    out.subheader("PART 2: Configure Manager GUI via API")
 
     if not wait_for_api_ready(
         config.ip,
@@ -46,8 +121,7 @@ def run_certificate_automation(net_connect, config: ManagerConfig):
         config.password,
         config.api_ready_timeout_minutes,
     ):
-        print("✗ Manager API is not ready. Please check the system and try again.")
-        get_logger(__name__).error("Manager API not ready after timeout")
+        out.error("Manager API is not ready. Please check the system and try again.")
         return False
 
     session = requests.Session()
@@ -63,7 +137,7 @@ def run_certificate_automation(net_connect, config: ManagerConfig):
     ).text
     session.headers.update({"X-XSRF-TOKEN": token, "Content-Type": "application/json"})
 
-    print(f"Setting organization: {config.org}")
+    out.step(f"Setting organization: {config.org}")
     api_call(
         session,
         "PUT",
@@ -73,7 +147,7 @@ def run_certificate_automation(net_connect, config: ManagerConfig):
         {"org": config.org},
     )
 
-    print(f"Setting validator IP: {config.validator_ip}")
+    out.step(f"Setting validator IP: {config.validator_ip}")
     api_call(
         session,
         "PUT",
@@ -83,7 +157,7 @@ def run_certificate_automation(net_connect, config: ManagerConfig):
         {"domainIp": config.validator_ip, "port": "12346"},
     )
 
-    print("Change certificate to enterprise root certificate...")
+    out.step("Changing certificate to enterprise root certificate...")
     api_call(
         session,
         "POST",
@@ -93,7 +167,7 @@ def run_certificate_automation(net_connect, config: ManagerConfig):
         {"certificateSigning": "enterprise"},
     )
 
-    print("Uploading enterprise root certificate...")
+    out.step("Uploading enterprise root certificate...")
     api_call(
         session,
         "PUT",
@@ -103,7 +177,7 @@ def run_certificate_automation(net_connect, config: ManagerConfig):
         {"enterpriseRootCA": root_cert_content},
     )
 
-    print("Set CSR properties as default")
+    out.step("Setting CSR properties as default...")
     api_call(
         session,
         "PUT",
@@ -113,13 +187,11 @@ def run_certificate_automation(net_connect, config: ManagerConfig):
         {"domain_name": ""},
     )
 
-    print("✓ Manager configured")
+    out.success("Manager configured")
 
-    print("\n" + "=" * 50)
-    print("PART 3: Generate and Sign CSR")
-    print("=" * 50)
+    out.subheader("PART 3: Generate and Sign CSR")
 
-    print("Generating CSR...")
+    out.step("Generating CSR...")
     csr_generated = False
     max_csr_attempts = 3
 
@@ -132,28 +204,25 @@ def run_certificate_automation(net_connect, config: ManagerConfig):
             "/dataservice/certificate/generate/csr",
             {"deviceIP": config.ip},
         )
-        print(
+        out.detail(
             f"API Response Status: {csr_response.status_code} "
             f"(attempt {csr_attempt}/{max_csr_attempts})"
         )
 
         if csr_response.status_code == 200:
-            print("✓ CSR generation request successful")
+            out.success("CSR generation request successful")
             csr_generated = True
             break
-        print(f"⚠ CSR generation failed with status {csr_response.status_code}")
+        out.warning(f"CSR generation failed with status {csr_response.status_code}")
         if csr_attempt < max_csr_attempts:
-            print("Retrying in 5 seconds...")
+            out.wait("Retrying in 5 seconds...")
             time.sleep(5)
 
     if not csr_generated:
-        print(f"ERROR: CSR generation failed after {max_csr_attempts} attempts")
-        get_logger(__name__).error(
-            f"CSR generation failed after {max_csr_attempts} attempts"
-        )
+        out.error(f"CSR generation failed after {max_csr_attempts} attempts")
         return False
 
-    print("Waiting for CSR file to be created...")
+    out.step("Waiting for CSR file to be created...")
     csr_found = False
     max_attempts = int(config.csr_file_timeout_minutes * 12)
     for attempt in range(max_attempts):
@@ -163,26 +232,22 @@ def run_certificate_automation(net_connect, config: ManagerConfig):
                 f"test -f {config.csr_file} && echo 'exists' || echo 'not_found'",
             )
             if "exists" in check_result:
-                print(f"✓ CSR file found (attempt {attempt + 1})")
+                out.success(f"CSR file found (attempt {attempt + 1})")
                 csr_found = True
                 break
         except Exception as e:
-            print(f"Check attempt {attempt + 1} failed: {e}")
+            out.detail(f"Check attempt {attempt + 1} failed: {e}")
 
         if attempt < max_attempts - 1:
             time.sleep(5)
 
     if not csr_found:
-        print(
-            "ERROR: CSR file was not created after "
-            f"{config.csr_file_timeout_minutes} minute(s)"
-        )
-        get_logger(__name__).error(
-            f"CSR file not created after {config.csr_file_timeout_minutes} minute(s)"
+        out.error(
+            f"CSR file was not created after {config.csr_file_timeout_minutes} minute(s)"
         )
         return False
 
-    print("Signing CSR...")
+    out.step("Signing CSR...")
     run_vshell_cmd(
         net_connect,
         f"openssl x509 -req -in {config.csr_file} -CA {config.root_cert} "
@@ -190,13 +255,11 @@ def run_certificate_automation(net_connect, config: ManagerConfig):
         "-days 2000 -sha256",
     )
     signed_cert_content = read_file_vshell(net_connect, config.signed_cert)
-    print("✓ CSR signed")
+    out.success("CSR signed")
 
-    print("\n" + "=" * 50)
-    print("PART 4: Install Certificate")
-    print("=" * 50)
+    out.subheader("PART 4: Install Certificate")
 
-    print("Installing certificate...")
+    out.step("Installing certificate...")
     api_call(
         session,
         "POST",
@@ -206,81 +269,5 @@ def run_certificate_automation(net_connect, config: ManagerConfig):
         raw_data=signed_cert_content,
     )
 
-    print("✓ Certificate installed!")
+    out.success("Certificate installed!")
     return True
-
-
-def run_manager_automation(
-    config: ManagerConfig,
-    initial_config: bool = False,
-    cert: bool = False,
-    config_file: str | None = None,
-):
-    """
-    Orchestrate Manager actions based on CLI flags.
-    """
-    logger = get_logger(__name__)
-    logger.info(
-        f"Manager run start initial_config={initial_config} cert={cert} config_file={config_file}",
-    )
-    net_connect = None
-
-    if initial_config:
-        print("\n" + "=" * 50)
-        print("Mode: Initial Configuration")
-        print("=" * 50)
-
-        print("Attempting to connect with default credentials...")
-        net_connect = connect_to_device(
-            "cisco_viptela",
-            config.ip,
-            config.username,
-            config.username,
-            exit_on_failure=False,
-        )
-
-        if net_connect:
-            push_initial_config(net_connect, config.initial_config)
-
-            net_connect.disconnect()
-            net_connect = connect_to_device(
-                "cisco_viptela", config.ip, config.username, config.password
-            )
-        else:
-            print("⚠ Default credentials failed, trying configured password...")
-            net_connect = connect_to_device(
-                "cisco_viptela", config.ip, config.username, config.password
-            )
-            print(
-                "✓ Already configured with updated password - skipping initial config push"
-            )
-
-    if cert:
-        if not net_connect:
-            net_connect = connect_to_device(
-                "cisco_viptela", config.ip, config.username, config.password
-            )
-
-        print("\n" + "=" * 50)
-        print("Mode: Certificate Automation")
-        print("=" * 50)
-
-        success = run_certificate_automation(net_connect, config)
-        if not success:
-            net_connect.disconnect()
-            raise SystemExit(1)
-
-        print("\n" + "=" * 50)
-        print("SUCCESS! Check GUI: Configuration > Certificates > Control Components")
-        print("=" * 50)
-
-    if config_file:
-        if not net_connect:
-            net_connect = connect_to_device(
-                "cisco_viptela", config.ip, config.username, config.password
-            )
-        push_config_from_file(net_connect, config_file)
-
-    if net_connect:
-        net_connect.disconnect()
-        print("\n✓ Disconnected from Manager")

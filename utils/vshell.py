@@ -1,6 +1,6 @@
-from utils.logging import get_logger
+from utils.output import Output
 
-logger = get_logger(__name__)
+out = Output(__name__)
 
 
 def run_vshell_cmd(net_connect, command):
@@ -17,19 +17,17 @@ def run_vshell_cmd(net_connect, command):
         net_connect.send_command("exit", expect_string=r"#")
         return output
     except Exception as e:
-        print(f"Error executing vshell command: {e}")
+        out.error(f"Error executing vshell command: {e}")
         raise
 
 
 def read_file_vshell(net_connect, filename):
     """Read file content via vshell."""
     content = run_vshell_cmd(net_connect, f"cat {filename}")
-    logger.debug(
-        "\n--- Read file %s ---\n%s\n--- End file ---",
-        filename,
-        content,
+    out.log_only(
+        f"\n--- Read file {filename} ---\n{content}\n--- End file ---",
+        level="debug",
     )
-    logger.info(f"Read file {filename} via vshell")
     return content
 
 
@@ -39,16 +37,14 @@ def write_file_vshell(net_connect, filename, content):
     """
     try:
         net_connect.send_command("vshell", expect_string=r"\$")
-        logger.debug(
-            "\n--- Write file %s ---\n%s\n--- End file ---",
-            filename,
-            content,
+        out.log_only(
+            f"\n--- Write file {filename} ---\n{content}\n--- End file ---",
+            level="debug",
         )
-        logger.info(f"Writing file {filename} via vshell")
         net_connect.send_command_timing(f"cat > {filename} << 'EOF'")
         net_connect.send_command_timing(content)
         net_connect.send_command_timing("EOF")
         net_connect.send_command("exit", expect_string=r"#")
     except Exception as e:
-        print(f"Error writing file in vshell: {e}")
+        out.error(f"Error writing file in vshell: {e}")
         raise

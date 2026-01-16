@@ -1,7 +1,7 @@
 from typing import Optional
 
 from sdwan_config import ControllerConfig
-from utils.logging import get_logger
+from utils.output import Output
 
 
 def run_controller_automation(
@@ -13,15 +13,14 @@ def run_controller_automation(
     """
     Placeholder for vSmart controller automation.
     """
-    logger = get_logger(__name__)
-    logger.info(
-       f"Controller run start initial_config={initial_config} cert={cert} config_file={config_file}",
+    out = Output(__name__)
+    out.log_only(
+        f"Controller run start initial_config={initial_config} cert={cert} config_file={config_file}",
     )
-    print("\n" + "=" * 50)
-    print("Controller Automation (vSmart) - TODO")
-    print("=" * 50)
-    print(f"Target controller IP: {config.ip}:{config.port}")
-    print(f"Requested actions: initial_config={initial_config}, cert={cert}")
+    out.header(
+        "Controller Automation (vSmart) - TODO", f"Target: {config.ip}:{config.port}"
+    )
+    out.info(f"Requested actions: initial_config={initial_config}, cert={cert}")
     if config_file:
-        print(f"Requested config file: {config_file}")
-    print("Next steps will be added here.")
+        out.info(f"Requested config file: {config_file}")
+    out.step("Next steps will be added here.")

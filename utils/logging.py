@@ -1,21 +1,17 @@
 import gzip
 import logging
 import os
-import sys
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
 
 def setup_logging(verbose: bool) -> None:
     log_level = logging.DEBUG
-    console_level = logging.DEBUG if verbose else logging.WARNING
+    console_level = logging.DEBUG if verbose else logging.ERROR
 
     root_logger = logging.getLogger()
     if root_logger.handlers:
         return
-
-    original_stdout = sys.stdout
-    original_stderr = sys.stderr
 
     logs_dir = Path(__file__).resolve().parents[1] / "logs"
     logs_dir.mkdir(exist_ok=True)
@@ -42,7 +38,7 @@ def setup_logging(verbose: bool) -> None:
         logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s")
     )
 
-    console_handler = logging.StreamHandler(original_stderr)
+    console_handler = logging.StreamHandler()
     console_handler.setLevel(console_level)
     console_handler.setFormatter(
         logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -52,13 +48,6 @@ def setup_logging(verbose: bool) -> None:
     root_logger.addHandler(info_handler)
     root_logger.addHandler(debug_handler)
     root_logger.addHandler(console_handler)
-
-    sys.stdout = _StreamToLogger(
-        logging.getLogger("stdout"), logging.INFO, original_stdout
-    )
-    sys.stderr = _StreamToLogger(
-        logging.getLogger("stderr"), logging.ERROR, original_stderr
-    )
 
     logging.getLogger("paramiko").setLevel(logging.WARNING)
     logging.getLogger("urllib3").setLevel(logging.WARNING)
@@ -76,32 +65,3 @@ def _rotator(source: str, dest: str) -> None:
 
 def _namer(name: str) -> str:
     return name + ".gz"
-
-
-class _StreamToLogger:
-    def __init__(
-        self, logger: logging.Logger, level: int, stream
-    ) -> None:
-        self.logger = logger
-        self.level = level
-        self.stream = stream
-        self._buffer: list[str] = []
-
-    def write(self, message: str) -> int:
-        if not message:
-            return 0
-        self.stream.write(message)
-        self.stream.flush()
-        self._buffer.append(message)
-        if message.endswith("\n"):
-            self.flush()
-        return len(message)
-
-    def flush(self) -> None:
-        if not self._buffer:
-            return
-        data = "".join(self._buffer).rstrip("\n")
-        self._buffer.clear()
-        if data:
-            for line in data.splitlines():
-                self.logger.log(self.level, line)
