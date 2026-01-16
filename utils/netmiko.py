@@ -3,9 +3,9 @@ from pathlib import Path
 
 from netmiko import ConnectHandler
 
-from utils.logging import get_logger
+from utils.output import Output
 
-logger = get_logger(__name__)
+out = Output(__name__)
 
 
 def connect_to_device(device_type, host, username, password, exit_on_failure=True):
@@ -29,13 +29,11 @@ def connect_to_device(device_type, host, username, password, exit_on_failure=Tru
 
     try:
         net_connect = ConnectHandler(**device)
-        # print(f"✓ Connected to {host} as {username}")
-        logger.info(f"Connected to {host} as {username}")
+        out.log_only(f"Connected to {host} as {username}")
         return net_connect
     except Exception as e:
         if exit_on_failure:
-            print(f"✗ Failed to connect to {host}: {e}")
-            logger.error(f"Failed to connect to {host}: {e}")
+            out.error(f"Failed to connect to {host}: {e}")
             sys.exit(1)
         return None
 
@@ -51,35 +49,31 @@ def push_cli_config(net_connect, config_commands):
     Returns:
         str: Command output
     """
-    print("Pushing CLI configuration...")
+    out.step("Pushing CLI configuration...")
     if isinstance(config_commands, str):
-        logger.info(
+        out.log_only(
             f"\n--- Config to push ---\n{config_commands.strip()}\n--- End config ---",
+            level="debug",
         )
-
-    if isinstance(config_commands, str):
         config_commands = [
             line.strip() for line in config_commands.strip().split("\n") if line.strip()
         ]
 
     output = net_connect.send_config_set(config_commands)
 
-    print("Committing configuration...")
+    out.step("Committing configuration...")
     commit_output = net_connect.commit()
 
-    print("✓ Configuration pushed and committed")
-    logger.info("Configuration pushed and committed")
+    out.success("Configuration pushed and committed")
     return output + "\n" + commit_output
 
 
 def push_initial_config(net_connect, initial_config):
     """Push initial device configuration."""
-    print("\n" + "=" * 50)
-    print("Pushing Initial Configuration")
-    print("=" * 50)
+    out.header("Pushing Initial Configuration")
 
     push_cli_config(net_connect, initial_config)
-    print("✓ Initial configuration complete")
+    out.success("Initial configuration complete")
 
 
 def push_config_from_file(net_connect, filepath):
@@ -93,25 +87,20 @@ def push_config_from_file(net_connect, filepath):
     config_file = Path(filepath)
 
     if not config_file.exists():
-        print(f"✗ Configuration file not found: {filepath}")
-        logger.error(f"Configuration file not found: {filepath}")
+        out.error(f"Configuration file not found: {filepath}")
         sys.exit(1)
 
-    print(f"\n{'=' * 50}")
-    print(f"Pushing configuration from: {config_file.name}")
-    print("=" * 50)
+    out.header(f"Pushing configuration from: {config_file.name}")
 
     config_content = config_file.read_text()
 
     if not config_content.strip():
-        print("✗ Configuration file is empty")
-        logger.error(f"Configuration file is empty: {filepath}")
+        out.error(f"Configuration file is empty: {filepath}")
         sys.exit(1)
 
     try:
         push_cli_config(net_connect, config_content)
-        print(f"✓ Successfully applied configuration from {config_file.name}")
+        out.success(f"Successfully applied configuration from {config_file.name}")
     except Exception as e:
-        print(f"✗ Failed to push configuration: {e}")
-        logger.error(f"Failed to push configuration from {filepath}: {e}")
+        out.error(f"Failed to push configuration: {e}")
         sys.exit(1)
