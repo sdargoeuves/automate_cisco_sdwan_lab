@@ -3,6 +3,7 @@ from pathlib import Path
 
 from netmiko import ConnectHandler
 
+import sdwan_config as settings
 from utils.output import Output
 
 out = Output(__name__)
@@ -24,7 +25,9 @@ def connect_to_device(device_type, host, username, password, exit_on_failure=Tru
         "host": host,
         "username": username,
         "password": password,
-        "session_log": "netmiko_session.log",
+        # "session_log": settings.NETMIKO_SESSION_LOG,
+        # "session_log_file_mode": "append",
+        # "session_log_record_writes": True,
     }
 
     try:

@@ -1,26 +1,20 @@
 import time
 
-import requests
-
-from sdwan_config import ManagerConfig
-from utils.api import api_call, wait_for_api_ready
-from utils.netmiko import (
-    connect_to_device,
-    push_config_from_file,
-    push_initial_config
-)
+import sdwan_config as settings
+from utils.netmiko import connect_to_device, push_config_from_file, push_initial_config
 from utils.output import Output
+from utils.sdwan_sdk import SdkCallError, sdk_call_json, sdk_call_raw
 from utils.vshell import read_file_vshell, run_vshell_cmd
 
 
 def run_manager_automation(
-    config: ManagerConfig,
+    config: settings.ManagerConfig,
     initial_config: bool = False,
     cert: bool = False,
     config_file: str | None = None,
 ):
     """
-    Orchestrate Manager actions based on CLI flags.
+    Orchestrate Manager/vManage actions.
     """
     out = Output(__name__)
     out.log_only(
@@ -86,7 +80,7 @@ def run_manager_automation(
         out.success("Disconnected from Manager")
 
 
-def run_certificate_automation(net_connect, config: ManagerConfig):
+def run_certificate_automation(net_connect, config: settings.ManagerConfig):
     """
     Run the full certificate automation workflow
 
@@ -114,78 +108,49 @@ def run_certificate_automation(net_connect, config: ManagerConfig):
 
     out.subheader("PART 2: Configure Manager GUI via API")
 
-    if not wait_for_api_ready(
-        config.ip,
-        config.port,
-        config.username,
-        config.password,
-        config.api_ready_timeout_minutes,
-    ):
-        out.error("Manager API is not ready. Please check the system and try again.")
+    try:
+        out.step(f"Setting organization: {config.org}")
+        sdk_call_json(
+            config,
+            "PUT",
+            "/dataservice/settings/configuration/organization",
+            data={"org": config.org},
+        )
+
+        out.step(f"Setting validator IP: {config.validator_ip}")
+        sdk_call_json(
+            config,
+            "PUT",
+            "/dataservice/settings/configuration/device",
+            data={"domainIp": config.validator_ip, "port": "12346"},
+        )
+
+        out.step("Changing certificate to enterprise root certificate...")
+        sdk_call_json(
+            config,
+            "POST",
+            "/dataservice/settings/configuration/certificate",
+            data={"certificateSigning": "enterprise"},
+        )
+
+        out.step("Uploading enterprise root certificate...")
+        sdk_call_json(
+            config,
+            "PUT",
+            "/dataservice/settings/configuration/certificate/enterpriserootca",
+            data={"enterpriseRootCA": root_cert_content},
+        )
+
+        out.step("Setting CSR properties as default...")
+        sdk_call_json(
+            config,
+            "PUT",
+            "/dataservice/settings/configuration/certificate/csrproperties",
+            data={"domain_name": ""},
+        )
+    except SdkCallError as exc:
+        out.error(str(exc))
         return False
-
-    session = requests.Session()
-    session.verify = False
-
-    session.post(
-        f"https://{config.ip}:{config.port}/j_security_check",
-        data={"j_username": config.username, "j_password": config.password},
-    )
-
-    token = session.get(
-        f"https://{config.ip}:{config.port}/dataservice/client/token"
-    ).text
-    session.headers.update({"X-XSRF-TOKEN": token, "Content-Type": "application/json"})
-
-    out.step(f"Setting organization: {config.org}")
-    api_call(
-        session,
-        "PUT",
-        config.ip,
-        config.port,
-        "/dataservice/settings/configuration/organization",
-        {"org": config.org},
-    )
-
-    out.step(f"Setting validator IP: {config.validator_ip}")
-    api_call(
-        session,
-        "PUT",
-        config.ip,
-        config.port,
-        "/dataservice/settings/configuration/device",
-        {"domainIp": config.validator_ip, "port": "12346"},
-    )
-
-    out.step("Changing certificate to enterprise root certificate...")
-    api_call(
-        session,
-        "POST",
-        config.ip,
-        config.port,
-        "/dataservice/settings/configuration/certificate",
-        {"certificateSigning": "enterprise"},
-    )
-
-    out.step("Uploading enterprise root certificate...")
-    api_call(
-        session,
-        "PUT",
-        config.ip,
-        config.port,
-        "/dataservice/settings/configuration/certificate/enterpriserootca",
-        {"enterpriseRootCA": root_cert_content},
-    )
-
-    out.step("Setting CSR properties as default...")
-    api_call(
-        session,
-        "PUT",
-        config.ip,
-        config.port,
-        "/dataservice/settings/configuration/certificate/csrproperties",
-        {"domain_name": ""},
-    )
 
     out.success("Manager configured")
 
@@ -196,33 +161,37 @@ def run_certificate_automation(net_connect, config: ManagerConfig):
     max_csr_attempts = 3
 
     for csr_attempt in range(1, max_csr_attempts + 1):
-        csr_response = api_call(
-            session,
-            "POST",
-            config.ip,
-            config.port,
-            "/dataservice/certificate/generate/csr",
-            {"deviceIP": config.ip},
-        )
-        out.detail(
-            f"API Response Status: {csr_response.status_code} "
-            f"(attempt {csr_attempt}/{max_csr_attempts})"
-        )
-
-        if csr_response.status_code == 200:
-            out.success("CSR generation request successful")
+        try:
+            sdk_call_json(
+                config,
+                "POST",
+                "/dataservice/certificate/generate/csr",
+                data={"deviceIP": config.ip},
+            )
+        except SdkCallError as exc:
+            out.error(str(exc))
+            return False
+        else:
+            out.success(
+                f"CSR generation successful (attempt {csr_attempt}/{max_csr_attempts})"
+            )
             csr_generated = True
             break
-        out.warning(f"CSR generation failed with status {csr_response.status_code}")
+
+        # Failed
         if csr_attempt < max_csr_attempts:
-            out.wait("Retrying in 5 seconds...")
+            out.wait(
+                f"CSR attempt {csr_attempt}/{max_csr_attempts} failed, retrying in 5s..."
+            )
             time.sleep(5)
+        else:
+            out.error(f"CSR generation failed after {max_csr_attempts} attempts")
 
     if not csr_generated:
-        out.error(f"CSR generation failed after {max_csr_attempts} attempts")
+        out.error("CSR generation failed; aborting.")
         return False
 
-    out.step("Waiting for CSR file to be created...")
+    out.wait("Waiting for CSR file to be created...")
     csr_found = False
     max_attempts = int(config.csr_file_timeout_minutes * 12)
     for attempt in range(max_attempts):
@@ -260,14 +229,16 @@ def run_certificate_automation(net_connect, config: ManagerConfig):
     out.subheader("PART 4: Install Certificate")
 
     out.step("Installing certificate...")
-    api_call(
-        session,
-        "POST",
-        config.ip,
-        config.port,
-        "/dataservice/certificate/install/signedCert",
-        raw_data=signed_cert_content,
-    )
+    try:
+        sdk_call_raw(
+            config,
+            "POST",
+            "/dataservice/certificate/install/signedCert",
+            raw_data=signed_cert_content,
+        )
+    except SdkCallError as exc:
+        out.error(str(exc))
+        return False
 
     out.success("Certificate installed!")
     return True
