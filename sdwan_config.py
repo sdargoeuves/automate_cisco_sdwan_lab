@@ -1,6 +1,5 @@
 from dataclasses import dataclass
 
-
 # =============================================================================
 # Shared Configuration Values
 # =============================================================================
@@ -8,6 +7,10 @@ ORG: str = "ipf-netlab"
 USERNAME: str = "admin"
 PASSWORD: str = "admin@123"
 PORT: str = "443"
+WAIT_BEFORE_CONTROLLER: int = (
+    60  # seconds to wait before starting controller automation
+)
+WAIT_CSR_GENERATION: int = 20  # seconds to wait for CSR generation
 
 # Netmiko session log
 NETMIKO_SESSION_LOG: str = "logs/netmiko_session.log"
@@ -20,6 +23,7 @@ SIGNED_CERT: str = "NewCertificate.crt"
 # Network
 VALIDATOR_IP: str = "10.1.0.6"  # Validator/vBond's IP
 CONTROLLER_IP: str = "10.1.0.10"  # Controller/vSmart's IP
+
 
 # =============================================================================
 # Device-Specific Configuration

@@ -4,37 +4,36 @@ Simple Cisco SD-WAN Certificate Automation
 Uses Netmiko for better Viptela/SD-WAN CLI handling
 
 Usage:
-    # Manager actions:
-    ./sdwan_automation.py manager --first-boot
-    ./sdwan_automation.py manager --cert
-    ./sdwan_automation.py manager --initial-config
-    ./sdwan_automation.py manager --config-file myconfig.txt
-    ./sdwan_automation.py manager --cert --config-file additional.txt
+    # Components actions:
+    ./sdwan_automation.py [manager, validator, controller] --first-boot
+    ./sdwan_automation.py [manager, validator, controller] --cert
+    ./sdwan_automation.py [manager, validator, controller] --initial-config
+    ./sdwan_automation.py [manager, validator, controller] --config-file myconfig.txt
+    ./sdwan_automation.py [manager, validator, controller] --cert --config-file additional.txt
 
-    # Validator actions:
-    ./sdwan_automation.py validator --first-boot
-    ./sdwan_automation.py validator --cert
-    ./sdwan_automation.py validator --initial-config
-    ./sdwan_automation.py validator --config-file myconfig.txt
+    # Run first-boot on all components:
+    ./sdwan_automation.py all
 
-    # Controller actions:
-    ./sdwan_automation.py controller --first-boot
-    ./sdwan_automation.py controller --cert
-    ./sdwan_automation.py controller --initial-config
-    ./sdwan_automation.py controller --config-file myconfig.txt
+    # Show Manager status tables:
+    ./sdwan_automation.py show devices
+
+    # Call the sdwan SDK CLI directly using `sdk` and passing all arguments after it:
+    ./sdwan_automation.py sdk show dev
 """
 
 import argparse
 import sys
+import time
 from pathlib import Path
 
+import sdwan_config as settings
 from components.sdwan_controller import run_controller_automation
 from components.sdwan_manager import run_manager_automation
 from components.sdwan_validator import run_validator_automation
-import sdwan_config as settings
 from utils.logging import setup_logging
+from utils.manager_api_status import show_controller_status
 from utils.output import Output
-from utils.vmanage_status import show_controller_status, show_devices_status_mock
+from utils.sdwan_sdk import run_sdwan_cli
 
 
 def main():
@@ -141,16 +140,30 @@ def main():
         help="Show detailed device actions and file contents",
     )
 
-    show_parser = subparsers.add_parser(
-        "show", help="Show vManage status tables"
-    )
+    show_parser = subparsers.add_parser("show", help="Show Manager status tables")
     show_parser.set_defaults(_parser=show_parser)
     show_parser.add_argument(
         "resource",
-        choices=["controllers", "devices"],
+        choices=["devices"],
         help="Status table to display",
     )
     show_parser.add_argument(
+        "-v",
+        "--verbose",
+        action="store_true",
+        help="Show detailed device actions and file contents",
+    )
+
+    sdk_parser = subparsers.add_parser(
+        "sdk", help="Pass through commands to the Sastre SDK CLI"
+    )
+    sdk_parser.set_defaults(_parser=sdk_parser)
+    sdk_parser.add_argument(
+        "sdk_args",
+        nargs=argparse.REMAINDER,
+        help="Arguments to pass to the sdwan CLI",
+    )
+    sdk_parser.add_argument(
         "-v",
         "--verbose",
         action="store_true",
@@ -181,7 +194,7 @@ def main():
     # Handle "all" component - runs first-boot on everything
     if args.component == "all":
         out.log_only("Run start component=all (first-boot on all components)")
-        out.banner("Cisco SD-WAN Automation Script")
+        out.banner("Cisco SD-WAN Full Automation Script")
 
         run_manager_automation(
             settings.manager,
@@ -193,6 +206,10 @@ def main():
             initial_config=True,
             cert=True,
         )
+        out.wait(
+            f"Waiting {settings.WAIT_BEFORE_CONTROLLER} before starting Controller automation..."
+        )
+        time.sleep(settings.WAIT_BEFORE_CONTROLLER)
         run_controller_automation(
             settings.controller,
             initial_config=True,
@@ -202,11 +219,15 @@ def main():
         out.success(
             "First-boot automation finished for Manager, Validator, and Controller"
         )
+        out.wait("Waiting 10 seconds to ensure all components are synced...")
+        time.sleep(10)
         show_controller_status(settings.manager, out=out)
         return
 
     if args.component == "show":
         out.log_only(f"Run start component=show resource={args.resource}")
+    elif args.component == "sdk":
+        out.log_only(f"Run start component=sdk args={args.sdk_args}")
     else:
         out.log_only(
             f"Run start component={args.component} "
@@ -218,11 +239,17 @@ def main():
 
     # If no action flags provided for the component, show help
     if args.component == "show":
-        out.banner("Cisco SD-WAN Automation Script")
-        if args.resource == "controllers":
+        out.banner("Cisco SD-WAN Show Information")
+        if args.resource == "devices":
             show_controller_status(settings.manager, out=out)
-        elif args.resource == "devices":
-            show_devices_status_mock(settings.manager, out=out)
+        return
+    if args.component == "sdk":
+        if not args.sdk_args:
+            out.warning("No SDK arguments provided. Example: sdk show device")
+            return
+        result = run_sdwan_cli(settings, args.sdk_args, out_override=out)
+        if result != 0:
+            raise SystemExit(result)
         return
 
     has_config_file = hasattr(args, "config_file") and args.config_file

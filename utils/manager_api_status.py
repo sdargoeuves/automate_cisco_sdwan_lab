@@ -1,5 +1,5 @@
-from utils.api import api_call_with_session
 from utils.output import Output
+from utils.sdwan_sdk import SdkCallError, sdk_call_json
 
 
 def _format_cell(value: object) -> str:
@@ -32,29 +32,22 @@ def show_controller_status(manager_config, out: Output | None = None) -> None:
     out = out or Output(__name__)
     out.header("Controller GUI: Configuration > Devices > Control Components")
 
-    response = api_call_with_session(
-        manager_config,
-        "GET",
-        "/dataservice/system/device/controllers",
-    )
-    if not response:
-        out.warning("vManage API is not ready; skipping status table.")
-        return
-    if response.status_code != 200:
-        out.warning(
-            f"Failed to fetch controller status: HTTP {response.status_code}"
+    try:
+        response = sdk_call_json(
+            manager_config,
+            "GET",
+            "/dataservice/system/device/controllers",
         )
-        out.detail(response.text)
+    except SdkCallError as exc:
+        out.warning(str(exc))
         return
 
     try:
-        response_json = response.json()
-    except ValueError:
+        items = response.get("data", [])
+    except AttributeError:
         out.warning("Failed to parse controller status response as JSON.")
-        out.detail(response.text)
+        out.detail(str(response))
         return
-
-    items = response_json.get("data", [])
     if not items:
         out.info("No controller entries returned.")
         return
