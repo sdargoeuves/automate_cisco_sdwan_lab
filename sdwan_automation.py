@@ -11,13 +11,13 @@ Usage:
     ./sdwan_automation.py manager --config-file myconfig.txt
     ./sdwan_automation.py manager --cert --config-file additional.txt
 
-    # Validator actions (placeholder for now):
+    # Validator actions:
     ./sdwan_automation.py validator --first-boot
     ./sdwan_automation.py validator --cert
     ./sdwan_automation.py validator --initial-config
     ./sdwan_automation.py validator --config-file myconfig.txt
 
-    # Controller actions (placeholder for now):
+    # Controller actions:
     ./sdwan_automation.py controller --first-boot
     ./sdwan_automation.py controller --cert
     ./sdwan_automation.py controller --initial-config
@@ -26,13 +26,15 @@ Usage:
 
 import argparse
 import sys
+from pathlib import Path
 
 from components.sdwan_controller import run_controller_automation
 from components.sdwan_manager import run_manager_automation
 from components.sdwan_validator import run_validator_automation
-from sdwan_config import CONFIG
+import sdwan_config as settings
 from utils.logging import setup_logging
 from utils.output import Output
+from utils.vmanage_status import show_controller_status, show_devices_status_mock
 
 
 def main():
@@ -89,16 +91,16 @@ def main():
     validator_parser.add_argument(
         "--cert",
         action="store_true",
-        help="Run certificate automation (placeholder)",
+        help="Run certificate automation",
     )
     validator_parser.add_argument(
         "--initial-config",
         action="store_true",
-        help="Push initial validator configuration (placeholder)",
+        help="Push initial validator configuration",
     )
     validator_parser.add_argument(
         "--config-file",
-        help="Configuration file to push to validator (placeholder)",
+        help="Configuration file to push to validator",
     )
 
     controller_parser = subparsers.add_parser("controller", help="Controller tasks")
@@ -117,22 +119,38 @@ def main():
     controller_parser.add_argument(
         "--cert",
         action="store_true",
-        help="Run certificate automation (placeholder)",
+        help="Run certificate automation",
     )
     controller_parser.add_argument(
         "--initial-config",
         action="store_true",
-        help="Push initial controller configuration (placeholder)",
+        help="Push initial controller configuration",
     )
     controller_parser.add_argument(
         "--config-file",
-        help="Configuration file to push to controller (placeholder)",
+        help="Configuration file to push to controller",
     )
 
     all_parser = subparsers.add_parser(
         "all", help="Run first-boot on all components (manager, validator, controller)"
     )
     all_parser.add_argument(
+        "-v",
+        "--verbose",
+        action="store_true",
+        help="Show detailed device actions and file contents",
+    )
+
+    show_parser = subparsers.add_parser(
+        "show", help="Show vManage status tables"
+    )
+    show_parser.set_defaults(_parser=show_parser)
+    show_parser.add_argument(
+        "resource",
+        choices=["controllers", "devices"],
+        help="Status table to display",
+    )
+    show_parser.add_argument(
         "-v",
         "--verbose",
         action="store_true",
@@ -149,39 +167,64 @@ def main():
     setup_logging(args.verbose)
     out = Output(__name__)
 
+    # Clean up previous Netmiko session log if exists
+    netmiko_log = Path(settings.NETMIKO_SESSION_LOG)
+    if netmiko_log.exists():
+        try:
+            netmiko_log.unlink()
+            out.log_only(
+                f"Removed previous Netmiko session log: {netmiko_log}", level="debug"
+            )
+        except OSError as exc:
+            out.warning(f"Failed to remove Netmiko session log: {exc}")
+
     # Handle "all" component - runs first-boot on everything
     if args.component == "all":
         out.log_only("Run start component=all (first-boot on all components)")
         out.banner("Cisco SD-WAN Automation Script")
 
         run_manager_automation(
-            CONFIG.manager,
+            settings.manager,
             initial_config=True,
             cert=True,
         )
         run_validator_automation(
-            CONFIG.validator,
+            settings.validator,
             initial_config=True,
             cert=True,
         )
         run_controller_automation(
-            CONFIG.controller,
+            settings.controller,
             initial_config=True,
             cert=True,
         )
         out.header("All Components Complete")
-        out.success("First-boot automation finished for Manager, Validator, and Controller")
+        out.success(
+            "First-boot automation finished for Manager, Validator, and Controller"
+        )
+        show_controller_status(settings.manager, out=out)
         return
 
-    out.log_only(
-        f"Run start component={args.component} "
-        f"first_boot={args.first_boot} "
-        f"initial_config={args.initial_config} "
-        f"cert={args.cert} "
-        f"config_file={getattr(args, 'config_file', None)}"
-    )
+    if args.component == "show":
+        out.log_only(f"Run start component=show resource={args.resource}")
+    else:
+        out.log_only(
+            f"Run start component={args.component} "
+            f"first_boot={args.first_boot} "
+            f"initial_config={args.initial_config} "
+            f"cert={args.cert} "
+            f"config_file={getattr(args, 'config_file', None)}"
+        )
 
     # If no action flags provided for the component, show help
+    if args.component == "show":
+        out.banner("Cisco SD-WAN Automation Script")
+        if args.resource == "controllers":
+            show_controller_status(settings.manager, out=out)
+        elif args.resource == "devices":
+            show_devices_status_mock(settings.manager, out=out)
+        return
+
     has_config_file = hasattr(args, "config_file") and args.config_file
     if not any([args.first_boot, args.cert, args.initial_config, has_config_file]):
         args._parser.print_help()
@@ -196,7 +239,7 @@ def main():
 
     if args.component == "manager":
         run_manager_automation(
-            CONFIG.manager,
+            settings.manager,
             initial_config=args.initial_config,
             cert=args.cert,
             config_file=args.config_file,
@@ -205,7 +248,7 @@ def main():
         out.success("Manager automation finished")
     elif args.component == "validator":
         run_validator_automation(
-            CONFIG.validator,
+            settings.validator,
             initial_config=args.initial_config,
             cert=args.cert,
             config_file=args.config_file,
@@ -214,13 +257,15 @@ def main():
         out.success("Validator automation finished")
     elif args.component == "controller":
         run_controller_automation(
-            CONFIG.controller,
+            settings.controller,
             initial_config=args.initial_config,
             cert=args.cert,
             config_file=args.config_file,
         )
         out.header("Controller Complete")
         out.success("Controller automation finished")
+
+    show_controller_status(settings.manager, out=out)
 
 
 if __name__ == "__main__":

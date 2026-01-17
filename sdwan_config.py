@@ -4,27 +4,27 @@ from dataclasses import dataclass
 # =============================================================================
 # Shared Configuration Values
 # =============================================================================
-ORG = "ipf-netlab"
-USERNAME = "admin"
-PASSWORD = "admin@123"
-PORT = "443"
+ORG: str = "ipf-netlab"
+USERNAME: str = "admin"
+PASSWORD: str = "admin@123"
+PORT: str = "443"
 
 # Netmiko session log
-NETMIKO_SESSION_LOG = "logs/netmiko_session.log"
+NETMIKO_SESSION_LOG: str = "logs/netmiko_session.log"
 
 # Certificate files (same across all devices)
-RSA_KEY = "SDWAN.key"
-ROOT_CERT = "SDWAN.pem"
-SIGNED_CERT = "NewCertificate.crt"
+RSA_KEY: str = "SDWAN.key"
+ROOT_CERT: str = "SDWAN.pem"
+SIGNED_CERT: str = "NewCertificate.crt"
 
 # Network
-VALIDATOR_IP = "10.1.0.6"  # vBond's IP (used by all devices)
-
+VALIDATOR_IP: str = "10.1.0.6"  # Validator/vBond's IP
+CONTROLLER_IP: str = "10.1.0.10"  # Controller/vSmart's IP
 
 # =============================================================================
 # Device-Specific Configuration
 # =============================================================================
-@dataclass
+@dataclass(frozen=True)
 class ManagerConfig:
     ip: str
     port: str = PORT
@@ -44,7 +44,7 @@ class ManagerConfig:
     initial_config: str = ""
 
 
-@dataclass
+@dataclass(frozen=True)
 class ValidatorConfig:
     ip: str
     port: str = PORT
@@ -56,12 +56,11 @@ class ValidatorConfig:
     root_cert: str = ROOT_CERT
     signed_cert: str = SIGNED_CERT
     csr_file: str = "vbond_csr"
-    api_ready_timeout_minutes: int = 15
     csr_file_timeout_minutes: int = 1
     initial_config: str = ""
 
 
-@dataclass
+@dataclass(frozen=True)
 class ControllerConfig:
     ip: str
     port: str = PORT
@@ -69,18 +68,13 @@ class ControllerConfig:
     password: str = PASSWORD
     org: str = ORG
     validator_ip: str = VALIDATOR_IP
+    controller_ip: str = CONTROLLER_IP
     rsa_key: str = RSA_KEY
     root_cert: str = ROOT_CERT
     signed_cert: str = SIGNED_CERT
     csr_file: str = "vsmart_csr"
+    csr_file_timeout_minutes: int = 1
     initial_config: str = ""
-
-
-@dataclass
-class SDWANConfig:
-    manager: ManagerConfig
-    validator: ValidatorConfig
-    controller: ControllerConfig
 
 
 # =============================================================================
@@ -148,19 +142,19 @@ allow-service all
 
 
 # =============================================================================
-# Main Configuration Instance
+# Configuration Instances
 # =============================================================================
-CONFIG = SDWANConfig(
-    manager=ManagerConfig(
-        ip="10.194.58.14",
-        initial_config=MANAGER_INITIAL_CONFIG,
-    ),
-    validator=ValidatorConfig(
-        ip="10.194.58.16",
-        initial_config=VALIDATOR_INITIAL_CONFIG,
-    ),
-    controller=ControllerConfig(
-        ip="10.194.58.15",
-        initial_config=CONTROLLER_INITIAL_CONFIG,
-    ),
+manager = ManagerConfig(
+    ip="10.194.58.14",
+    initial_config=MANAGER_INITIAL_CONFIG,
+)
+
+validator = ValidatorConfig(
+    ip="10.194.58.16",
+    initial_config=VALIDATOR_INITIAL_CONFIG,
+)
+
+controller = ControllerConfig(
+    ip="10.194.58.15",
+    initial_config=CONTROLLER_INITIAL_CONFIG,
 )

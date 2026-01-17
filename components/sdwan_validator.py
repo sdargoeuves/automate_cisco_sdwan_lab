@@ -1,10 +1,8 @@
 import time
 from typing import Optional
 
-import requests
-
-from sdwan_config import CONFIG, ValidatorConfig
-from utils.api import api_call, wait_for_api_ready
+import sdwan_config as settings
+from utils.api import api_call_with_session
 from utils.netmiko import (
     connect_to_device,
     push_config_from_file,
@@ -15,13 +13,13 @@ from utils.vshell import read_file_vshell, run_vshell_cmd, write_file_vshell
 
 
 def run_validator_automation(
-    config: ValidatorConfig,
+    config: settings.ValidatorConfig,
     initial_config: bool = False,
     cert: bool = False,
     config_file: Optional[str] = None,
 ):
     """
-    Run vBond/validator automation.
+    Orchestrate Validator/vBond actions.
     """
     out = Output(__name__)
     out.log_only(
@@ -83,9 +81,9 @@ def run_validator_automation(
         out.success("Disconnected from Validator")
 
 
-def run_certificate_automation(net_connect, config: ValidatorConfig) -> bool:
+def run_certificate_automation(net_connect, config: settings.ValidatorConfig) -> bool:
     """
-    Run certificate automation for vBond/validator.
+    Run certificate automation for Validator/vBond.
     """
     out = Output(__name__)
 
@@ -93,12 +91,16 @@ def run_certificate_automation(net_connect, config: ValidatorConfig) -> bool:
     out.step("Reading RSA key and root certificate from Manager...")
     manager_conn = connect_to_device(
         "cisco_viptela",
-        CONFIG.manager.ip,
-        CONFIG.manager.username,
-        CONFIG.manager.password,
+        settings.manager.ip,
+        settings.manager.username,
+        settings.manager.password,
     )
-    rsa_key_content = read_file_vshell(manager_conn, CONFIG.manager.rsa_key)
-    root_cert_content = read_file_vshell(manager_conn, CONFIG.manager.root_cert)
+    rsa_key_content = read_file_vshell(
+        manager_conn, settings.manager.rsa_key
+    )
+    root_cert_content = read_file_vshell(
+        manager_conn, settings.manager.root_cert
+    )
     manager_conn.disconnect()
 
     if not net_connect:
@@ -106,43 +108,30 @@ def run_certificate_automation(net_connect, config: ValidatorConfig) -> bool:
             "cisco_viptela", config.ip, config.username, config.password
         )
     out.step("Writing RSA key and root certificate to Validator...")
-    write_file_vshell(net_connect, CONFIG.manager.rsa_key, rsa_key_content)
-    write_file_vshell(net_connect, CONFIG.manager.root_cert, root_cert_content)
+    write_file_vshell(net_connect, settings.manager.rsa_key, rsa_key_content)
+    write_file_vshell(net_connect, settings.manager.root_cert, root_cert_content)
     out.success("RSA key and root certificate copied to validator")
 
     out.subheader("PART 2: Add Validator and Sign CSR")
     out.step("Add Validator in Manager GUI via API")
 
-    if not wait_for_api_ready(
-        CONFIG.manager.ip,
-        CONFIG.manager.port,
-        CONFIG.manager.username,
-        CONFIG.manager.password,
-        config.api_ready_timeout_minutes,
-    ):
-        out.error("Manager API is not ready. Please check the system and try again.")
-        return False
-
-    session = requests.Session()
-    session.verify = False
-
-    session.post(
-        f"https://{CONFIG.manager.ip}:{CONFIG.manager.port}/j_security_check",
-        data={"j_username": CONFIG.manager.username, "j_password": CONFIG.manager.password},
-    )
-
-    token = session.get(
-        f"https://{CONFIG.manager.ip}:{CONFIG.manager.port}/dataservice/client/token"
-    ).text
-    session.headers.update({"X-XSRF-TOKEN": token, "Content-Type": "application/json"})
+    def call_api(method, endpoint, data=None, raw_data=None):
+        response = api_call_with_session(
+            settings.manager,
+            method,
+            endpoint,
+            data=data,
+            raw_data=raw_data,
+        )
+        if not response:
+            out.error("Manager API is not ready. Please check the system and try again.")
+            return None
+        return response
 
     # Add validator device to Manager
     out.step("Adding validator device to Manager...")
-    response = api_call(
-        session,
+    response = call_api(
         "POST",
-        CONFIG.manager.ip,
-        CONFIG.manager.port,
         "/dataservice/system/device",
         {
             "deviceIP": config.validator_ip,
@@ -156,11 +145,14 @@ def run_certificate_automation(net_connect, config: ValidatorConfig) -> bool:
     if response.status_code == 200:
         out.success("Validator added to Manager successfully")
     else:
-        out.warning(f"Failed to add validator to Manager: {response.status_code}")
-        out.detail(f"Response: {response.text}")
+        if response:
+            out.warning(f"Failed to add validator to Manager: {response.status_code}")
+            out.detail(f"Response: {response.text}")
+        else:
+            return False
 
     # Wait for CSR to be generated on the validator
-    out.step("Waiting for CSR to be generated (30 seconds)...")
+    out.step("Waiting Validator to be added and CSR to be generated (30 seconds)...")
     time.sleep(30)
 
     out.step("Signing CSR...")
@@ -177,17 +169,13 @@ def run_certificate_automation(net_connect, config: ValidatorConfig) -> bool:
     out.subheader("PART 3: Install Certificate")
 
     out.step("Installing certificate on Manager...")
-    api_call(
-        session,
+    if not call_api(
         "POST",
-        CONFIG.manager.ip,
-        CONFIG.manager.port,
         "/dataservice/certificate/install/signedCert",
         raw_data=signed_cert_content,
-    )
+    ):
+        return False
 
     out.success("Certificate installed!")
 
     return True
-
-
