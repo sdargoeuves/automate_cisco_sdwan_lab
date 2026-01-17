@@ -1,0 +1,2 @@
+netmiko # tests were done with 4.6.0
+requests # tests were done with 2.32.5
