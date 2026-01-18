@@ -207,7 +207,7 @@ def main():
             cert=True,
         )
         out.wait(
-            f"Waiting {settings.WAIT_BEFORE_CONTROLLER} before starting Controller automation..."
+            f"Waiting {settings.WAIT_BEFORE_CONTROLLER}s before starting Controller automation..."
         )
         time.sleep(settings.WAIT_BEFORE_CONTROLLER)
         run_controller_automation(
@@ -219,8 +219,8 @@ def main():
         out.success(
             "First-boot automation finished for Manager, Validator, and Controller"
         )
-        out.wait("Waiting 10 seconds to ensure all components are synced...")
-        time.sleep(10)
+        out.wait("Waiting to ensure all components are synced...")
+        time.sleep(30)
         show_controller_status(settings.manager, out=out)
         return
 

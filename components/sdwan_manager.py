@@ -20,7 +20,7 @@ def run_manager_automation(
     out.log_only(
         f"Manager run start initial_config={initial_config} cert={cert} config_file={config_file}",
     )
-    out.header("Automation: MANAGER (vManage)", f"Target: {config.ip}:{config.port}")
+    out.header("Automation: MANAGER (vManage)", f"Target: {config.ip}")
 
     net_connect = None
 

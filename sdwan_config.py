@@ -7,10 +7,8 @@ ORG: str = "ipf-netlab"
 USERNAME: str = "admin"
 PASSWORD: str = "admin@123"
 PORT: str = "443"
-WAIT_BEFORE_CONTROLLER: int = (
-    60  # seconds to wait before starting controller automation
-)
-WAIT_CSR_GENERATION: int = 20  # seconds to wait for CSR generation
+WAIT_BEFORE_CONTROLLER: int = 180 # if too short, controller may not sync
+WAIT_CSR_GENERATION: int = 20
 
 # Netmiko session log
 NETMIKO_SESSION_LOG: str = "logs/netmiko_session.log"
@@ -51,7 +49,6 @@ class ManagerConfig:
 @dataclass(frozen=True)
 class ValidatorConfig:
     ip: str
-    port: str = PORT
     username: str = USERNAME
     password: str = PASSWORD
     org: str = ORG
@@ -67,7 +64,21 @@ class ValidatorConfig:
 @dataclass(frozen=True)
 class ControllerConfig:
     ip: str
-    port: str = PORT
+    username: str = USERNAME
+    password: str = PASSWORD
+    org: str = ORG
+    validator_ip: str = VALIDATOR_IP
+    controller_ip: str = CONTROLLER_IP
+    rsa_key: str = RSA_KEY
+    root_cert: str = ROOT_CERT
+    signed_cert: str = SIGNED_CERT
+    csr_file: str = "vsmart_csr"
+    csr_file_timeout_minutes: int = 1
+    initial_config: str = ""
+
+@dataclass(frozen=True)
+class EdgeConfig:
+    ip: str
     username: str = USERNAME
     password: str = PASSWORD
     org: str = ORG
@@ -144,6 +155,69 @@ tunnel-interface
 allow-service all
 """
 
+## in 
+EDGE1_INITIAL_CONFIG = """
+config-t
+ip route 0.0.0.0 0.0.0.0 10.1.0.22
+int GigabitEthernet4
+ip address 10.1.0.21 255.255.255.252
+no shut
+exit
+commit
+
+system-ip 10.194.58.17
+site-id 101
+organization-name ipf-netlab
+vbond 10.1.0.6
+
+
+interface Tunnel1
+ip unnumbered GigabitEthernet4
+tunnel source GigabitEthernet4
+tunnel mode sdwan
+exit
+
+sdwan
+interface GigabitEthernet4
+tunnel-interface
+encapsulation ipsec
+allow-service all
+color public-internet
+exit
+commit
+"""
+
+EDGE2_INITIAL_CONFIG = """
+config-t
+ip route 0.0.0.0 0.0.0.0 10.1.0.38
+int GigabitEthernet4
+ip address 10.1.0.37 255.255.255.252
+no shut
+exit
+commit
+
+system
+system-ip 10.194.58.18
+site-id 102
+organization-name ipf-netlab
+vbond 10.1.0.6
+
+
+interface Tunnel1
+ip unnumbered GigabitEthernet4
+tunnel source GigabitEthernet4
+tunnel mode sdwan
+exit
+
+sdwan
+interface GigabitEthernet4
+tunnel-interface
+encapsulation ipsec
+allow-service all
+color public-internet
+exit
+commit
+"""
 
 # =============================================================================
 # Configuration Instances
@@ -153,12 +227,22 @@ manager = ManagerConfig(
     initial_config=MANAGER_INITIAL_CONFIG,
 )
 
+controller = ControllerConfig(
+    ip="10.194.58.15",
+    initial_config=CONTROLLER_INITIAL_CONFIG,
+)
+
 validator = ValidatorConfig(
     ip="10.194.58.16",
     initial_config=VALIDATOR_INITIAL_CONFIG,
 )
 
-controller = ControllerConfig(
-    ip="10.194.58.15",
-    initial_config=CONTROLLER_INITIAL_CONFIG,
+edge1 = EdgeConfig(
+    ip="10.194.58.17",
+    initial_config=EDGE1_INITIAL_CONFIG,
+)
+
+edge2 = EdgeConfig(
+    ip="10.194.58.18",
+    initial_config=EDGE2_INITIAL_CONFIG,
 )

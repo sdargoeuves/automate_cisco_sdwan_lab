@@ -25,7 +25,7 @@ def run_controller_automation(
     out.log_only(
         f"Controller run start initial_config={initial_config} cert={cert} config_file={config_file}",
     )
-    out.header("Automation: CONTROLLER (vSmart)", f"Target: {config.ip}:{config.port}")
+    out.header("Automation: CONTROLLER (vSmart)", f"Target: {config.ip}")
 
     net_connect = None
 

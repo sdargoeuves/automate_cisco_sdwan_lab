@@ -25,7 +25,7 @@ def run_validator_automation(
     out.log_only(
         f"Validator run start initial_config={initial_config} cert={cert} config_file={config_file}",
     )
-    out.header("Automation: VALIDATOR (vBond)", f"Target: {config.ip}:{config.port}")
+    out.header("Automation: VALIDATOR (vBond)", f"Target: {config.ip}")
 
     net_connect = None
 

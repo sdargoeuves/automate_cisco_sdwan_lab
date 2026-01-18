@@ -46,7 +46,7 @@ def _create_client_with_retry(manager_config) -> Rest | None:
                 out.error(f"Manager SDK login failed: {exc}")
                 return None
             out.wait(
-                f"Manager API not ready yet (attempt {attempt}/{max_wait * 60 / 10}); retrying in 10s"
+                f"Manager API not ready yet (attempt {attempt}/{int(max_wait * 60 / 10)}); retrying in 10s"
             )
             time.sleep(10)
 
