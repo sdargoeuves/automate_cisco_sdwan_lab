@@ -28,6 +28,7 @@ from pathlib import Path
 
 import sdwan_config as settings
 from components.sdwan_controller import run_controller_automation
+from components.sdwan_edges import run_edges_automation
 from components.sdwan_manager import run_manager_automation
 from components.sdwan_validator import run_validator_automation
 from utils.component_sync import reboot_out_of_sync_components
@@ -131,6 +132,38 @@ def main():
         help="Configuration file to push to controller",
     )
 
+    edges_parser = subparsers.add_parser("edges", help="Edge tasks")
+    edges_parser.set_defaults(_parser=edges_parser)
+    edges_parser.add_argument(
+        "targets",
+        help="Comma-separated edge names (edge1,edge2) or 'all'",
+    )
+    edges_parser.add_argument(
+        "-v",
+        "--verbose",
+        action="store_true",
+        help="Show detailed device actions and file contents",
+    )
+    edges_parser.add_argument(
+        "--first-boot",
+        action="store_true",
+        help="First boot: push initial config and run certificate automation",
+    )
+    edges_parser.add_argument(
+        "--cert",
+        action="store_true",
+        help="Run certificate automation",
+    )
+    edges_parser.add_argument(
+        "--initial-config",
+        action="store_true",
+        help="Push initial edge configuration",
+    )
+    edges_parser.add_argument(
+        "--config-file",
+        help="Configuration file to push to edges",
+    )
+
     all_parser = subparsers.add_parser(
         "all", help="Run first-boot on all components (manager, validator, controller)"
     )
@@ -216,6 +249,14 @@ def main():
         out.log_only(f"Run start component=show resource={args.resource}")
     elif args.component == "sdk":
         out.log_only(f"Run start component=sdk args={args.sdk_args}")
+    elif args.component == "edges":
+        out.log_only(
+            f"Run start component=edges targets={args.targets} "
+            f"first_boot={args.first_boot} "
+            f"initial_config={args.initial_config} "
+            f"cert={args.cert} "
+            f"config_file={getattr(args, 'config_file', None)}"
+        )
     else:
         out.log_only(
             f"Run start component={args.component} "
@@ -230,6 +271,47 @@ def main():
         out.banner("Cisco SD-WAN Show Information")
         if args.resource == "devices":
             show_controller_status(settings.manager, out=out)
+        return
+    if args.component == "edges":
+        has_config_file = hasattr(args, "config_file") and args.config_file
+        if not any([args.first_boot, args.cert, args.initial_config, has_config_file]):
+            args._parser.print_help()
+            sys.exit(0)
+        if args.first_boot:
+            args.initial_config = True
+            args.cert = True
+
+        targets = [t.strip() for t in args.targets.split(",") if t.strip()]
+        if not targets:
+            out.error("No edge targets provided.")
+            sys.exit(1)
+
+        if len(targets) == 1 and targets[0].lower() == "all":
+            edge_configs = [
+                value
+                for name, value in vars(settings).items()
+                if name.startswith("edge") and isinstance(value, settings.EdgeConfig)
+            ]
+            if not edge_configs:
+                out.error("No edge configs found in sdwan_config.py.")
+                sys.exit(1)
+        else:
+            edge_configs = []
+            for target in targets:
+                config = getattr(settings, target, None)
+                if config is None:
+                    out.error(f"Unknown edge target: {target}")
+                    sys.exit(1)
+                edge_configs.append(config)
+
+        run_edges_automation(
+            edge_configs,
+            initial_config=args.initial_config,
+            config_file=args.config_file,
+            cert=args.cert,
+        )
+        out.header("Edges Complete")
+        out.success("Edge automation finished")
         return
     if args.component == "sdk":
         if not args.sdk_args:

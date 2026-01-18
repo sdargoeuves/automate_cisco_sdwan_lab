@@ -77,7 +77,7 @@ class ControllerConfig:
 class EdgeConfig:
     ip: str
     username: str = USERNAME
-    password: str = PASSWORD
+    password: str = "admin"
     org: str = ORG
     validator_ip: str = VALIDATOR_IP
     controller_ip: str = CONTROLLER_IP
@@ -152,9 +152,7 @@ tunnel-interface
 allow-service all
 """
 
-## in 
 EDGE1_INITIAL_CONFIG = """
-config-t
 ip route 0.0.0.0 0.0.0.0 10.10.0.14
 int GigabitEthernet4
 ip address 10.10.0.13 255.255.255.252
@@ -162,11 +160,12 @@ no shut
 exit
 commit
 
+system
 system-ip 10.194.58.17
 site-id 101
 organization-name ipf-netlab
 vbond 10.10.0.6
-
+exit
 
 interface Tunnel1
 ip unnumbered GigabitEthernet4
@@ -185,7 +184,6 @@ commit
 """
 
 EDGE2_INITIAL_CONFIG = """
-config-t
 ip route 0.0.0.0 0.0.0.0 10.10.0.18
 int GigabitEthernet4
 ip address 10.10.0.17 255.255.255.252
@@ -198,7 +196,7 @@ system-ip 10.194.58.18
 site-id 102
 organization-name ipf-netlab
 vbond 10.10.0.6
-
+exit
 
 interface Tunnel1
 ip unnumbered GigabitEthernet4
