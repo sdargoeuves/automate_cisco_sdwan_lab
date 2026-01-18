@@ -7,11 +7,8 @@ ORG: str = "ipf-netlab"
 USERNAME: str = "admin"
 PASSWORD: str = "admin@123"
 PORT: str = "443"
-WAIT_BEFORE_CONTROLLER: int = 180 # if too short, controller may not sync
+WAIT_BEFORE_CONTROLLER: int = 120
 WAIT_CSR_GENERATION: int = 20
-
-# Netmiko session log
-NETMIKO_SESSION_LOG: str = "logs/netmiko_session.log"
 
 # Certificate files (same across all devices)
 RSA_KEY: str = "SDWAN.key"
@@ -19,8 +16,8 @@ ROOT_CERT: str = "SDWAN.pem"
 SIGNED_CERT: str = "NewCertificate.crt"
 
 # Network
-VALIDATOR_IP: str = "10.1.0.6"  # Validator/vBond's IP
-CONTROLLER_IP: str = "10.1.0.10"  # Controller/vSmart's IP
+VALIDATOR_IP: str = "10.10.0.6"  # Validator/vBond's IP
+CONTROLLER_IP: str = "10.10.0.10"  # Controller/vSmart's IP
 
 
 # =============================================================================
@@ -103,11 +100,11 @@ password admin@123
 site-id 255
 organization-name ipf-netlab
 system-ip 10.194.58.14
-vbond 10.1.0.6
+vbond 10.10.0.6
 vpn 0
-ip route 0.0.0.0/0 10.1.0.1
+ip route 0.0.0.0/0 10.10.0.1
 interface eth1
-ip address 10.1.0.2/30
+ip address 10.10.0.2/30
 description "sdwan-manager to inet0"
 no shut
 tunnel-interface
@@ -122,11 +119,11 @@ password admin@123
 site-id 255
 organization-name ipf-netlab
 system-ip 10.194.58.16
-vbond 10.1.0.6 local
+vbond 10.10.0.6 local
 vpn 0
-ip route 0.0.0.0/0 10.1.0.5
+ip route 0.0.0.0/0 10.10.0.5
 interface ge0/0
-ip address 10.1.0.6/30
+ip address 10.10.0.6/30
 description "sdwan-validator to inet0"
 no shut
 no tunnel-interface
@@ -144,11 +141,11 @@ password admin@123
 site-id 255
 organization-name ipf-netlab
 system-ip 10.194.58.15
-vbond 10.1.0.6
+vbond 10.10.0.6
 vpn 0
-ip route 0.0.0.0/0 10.1.0.9
+ip route 0.0.0.0/0 10.10.0.9
 interface eth1
-ip address 10.1.0.10/30
+ip address 10.10.0.10/30
 description "sdwan-controller to inet0"
 no shut
 tunnel-interface
@@ -158,9 +155,9 @@ allow-service all
 ## in 
 EDGE1_INITIAL_CONFIG = """
 config-t
-ip route 0.0.0.0 0.0.0.0 10.1.0.22
+ip route 0.0.0.0 0.0.0.0 10.10.0.14
 int GigabitEthernet4
-ip address 10.1.0.21 255.255.255.252
+ip address 10.10.0.13 255.255.255.252
 no shut
 exit
 commit
@@ -168,7 +165,7 @@ commit
 system-ip 10.194.58.17
 site-id 101
 organization-name ipf-netlab
-vbond 10.1.0.6
+vbond 10.10.0.6
 
 
 interface Tunnel1
@@ -189,9 +186,9 @@ commit
 
 EDGE2_INITIAL_CONFIG = """
 config-t
-ip route 0.0.0.0 0.0.0.0 10.1.0.38
+ip route 0.0.0.0 0.0.0.0 10.10.0.18
 int GigabitEthernet4
-ip address 10.1.0.37 255.255.255.252
+ip address 10.10.0.17 255.255.255.252
 no shut
 exit
 commit
@@ -200,7 +197,7 @@ system
 system-ip 10.194.58.18
 site-id 102
 organization-name ipf-netlab
-vbond 10.1.0.6
+vbond 10.10.0.6
 
 
 interface Tunnel1

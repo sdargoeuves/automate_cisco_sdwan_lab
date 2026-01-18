@@ -30,6 +30,7 @@ import sdwan_config as settings
 from components.sdwan_controller import run_controller_automation
 from components.sdwan_manager import run_manager_automation
 from components.sdwan_validator import run_validator_automation
+from utils.component_sync import reboot_out_of_sync_components
 from utils.logging import setup_logging
 from utils.manager_api_status import show_controller_status
 from utils.output import Output
@@ -180,17 +181,6 @@ def main():
     setup_logging(args.verbose)
     out = Output(__name__)
 
-    # Clean up previous Netmiko session log if exists
-    netmiko_log = Path(settings.NETMIKO_SESSION_LOG)
-    if netmiko_log.exists():
-        try:
-            netmiko_log.unlink()
-            out.log_only(
-                f"Removed previous Netmiko session log: {netmiko_log}", level="debug"
-            )
-        except OSError as exc:
-            out.warning(f"Failed to remove Netmiko session log: {exc}")
-
     # Handle "all" component - runs first-boot on everything
     if args.component == "all":
         out.log_only("Run start component=all (first-boot on all components)")
@@ -219,9 +209,7 @@ def main():
         out.success(
             "First-boot automation finished for Manager, Validator, and Controller"
         )
-        out.wait("Waiting to ensure all components are synced...")
-        time.sleep(30)
-        show_controller_status(settings.manager, out=out)
+        reboot_out_of_sync_components(settings.manager, out=out)
         return
 
     if args.component == "show":

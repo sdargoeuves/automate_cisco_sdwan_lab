@@ -210,9 +210,9 @@ warning: we will have to check that it works well with netmiko, otherwise we mig
 in our example, port 4 is the one connected to the internet router (inet0) where the other sdwan components are connected too.
 
 config-t
-ip route 0.0.0.0 0.0.0.0 10.1.0.38
+ip route 0.0.0.0 0.0.0.0 10.10.0.18
 int GigabitEthernet4
-ip address 10.1.0.37 255.255.255.252
+ip address 10.10.0.17 255.255.255.252
 no shut
 exit
 commit
@@ -221,7 +221,7 @@ system
 system-ip 10.194.58.18
 site-id 102
 organization-name ipf-netlab
-vbond 10.1.0.6
+vbond 10.10.0.6
 
 interface Tunnel1
 ip unnumbered GigabitEthernet4
@@ -241,7 +241,7 @@ commit
 ### 2A.2. Copy the SDWAN.pem file from the Validatoru (or Manager or Controller)
 
 edge2#copy scp: bootflash:/sdwan/
-Address or name of remote host []? 10.1.0.6
+Address or name of remote host []? 10.10.0.6
 Source username [admin]? 
 Source filename []? SDWAN.pem
 Destination filename [/sdwan/SDWAN.pem]? 

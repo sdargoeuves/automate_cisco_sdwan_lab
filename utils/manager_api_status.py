@@ -28,10 +28,10 @@ def _build_table(headers: list[str], rows: list[list[str]]) -> list[str]:
     return lines
 
 
-def show_controller_status(manager_config, out: Output | None = None) -> None:
+def get_controller_status_items(
+    manager_config, out: Output | None = None
+) -> list[dict]:
     out = out or Output(__name__)
-    out.header("Controller GUI: Configuration > Devices > Control Components")
-
     try:
         response = sdk_call_json(
             manager_config,
@@ -40,16 +40,40 @@ def show_controller_status(manager_config, out: Output | None = None) -> None:
         )
     except SdkCallError as exc:
         out.warning(str(exc))
-        return
+        return []
 
     try:
         items = response.get("data", [])
     except AttributeError:
         out.warning("Failed to parse controller status response as JSON.")
         out.detail(str(response))
-        return
+        return []
+
     if not items:
         out.info("No controller entries returned.")
+        return []
+
+    return items
+
+
+def _is_out_of_sync(item: dict) -> bool:
+    status = str(item.get("configStatusMessage", "")).strip().lower()
+    return "out of sync" in status
+
+
+def get_out_of_sync_controllers(
+    manager_config, out: Output | None = None
+) -> list[dict]:
+    items = get_controller_status_items(manager_config, out=out)
+    return [item for item in items if _is_out_of_sync(item)]
+
+
+def show_controller_status(manager_config, out: Output | None = None) -> None:
+    out = out or Output(__name__)
+    out.header("Controller GUI: Configuration > Devices > Control Components")
+
+    items = get_controller_status_items(manager_config, out=out)
+    if not items:
         return
 
     device_type_labels = {
@@ -96,24 +120,6 @@ def show_controller_status(manager_config, out: Output | None = None) -> None:
                 _format_cell(item.get("certInstallStatus")),
             ]
         )
-
-    for line in _build_table(headers, rows):
-        print(line)
-        out.log_only(line)
-
-
-def show_devices_status_mock(manager_config, out: Output | None = None) -> None:
-    out = out or Output(__name__)
-    out.header("Device Inventory (Mock)")
-
-    headers = ["Section", "Status", "Notes"]
-    rows = [
-        [
-            "devices",
-            "not-implemented",
-            "Add endpoint mapping for device inventory status.",
-        ]
-    ]
 
     for line in _build_table(headers, rows):
         print(line)

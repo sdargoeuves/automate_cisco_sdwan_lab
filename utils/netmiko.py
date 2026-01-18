@@ -24,10 +24,7 @@ def connect_to_device(device_type, host, username, password, exit_on_failure=Tru
         "device_type": device_type,
         "host": host,
         "username": username,
-        "password": password,
-        # "session_log": settings.NETMIKO_SESSION_LOG,
-        # "session_log_file_mode": "append",
-        # "session_log_record_writes": True,
+        "password": password
     }
 
     try:
@@ -107,3 +104,44 @@ def push_config_from_file(net_connect, filepath):
     except Exception as e:
         out.error(f"Failed to push configuration: {e}")
         sys.exit(1)
+
+
+def reboot_device(
+    host: str,
+    username: str,
+    password: str,
+    device_type: str = "cisco_viptela",
+    out_override: Output | None = None,
+) -> bool:
+    out_handle = out_override or out
+    out_handle.step(f"Sending reboot command to {host}...")
+    net_connect = connect_to_device(
+        device_type,
+        host,
+        username,
+        password,
+        exit_on_failure=False,
+    )
+    if not net_connect:
+        out_handle.warning(f"Failed to connect to {host} for reboot.")
+        return False
+
+    try:
+        output = net_connect.send_command_timing(
+            "reboot", strip_prompt=False, strip_command=False
+        )
+        if "are you sure" in output.lower():
+            output += net_connect.send_command_timing(
+                "yes", strip_prompt=False, strip_command=False
+            )
+        out_handle.log_only(output, level="debug")
+        out_handle.success(f"Reboot command sent to {host}")
+        return True
+    except Exception as exc:
+        out_handle.warning(f"Failed to reboot {host}: {exc}")
+        return False
+    finally:
+        try:
+            net_connect.disconnect()
+        except Exception:
+            pass
