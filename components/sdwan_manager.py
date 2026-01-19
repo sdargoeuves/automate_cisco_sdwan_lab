@@ -189,7 +189,10 @@ def run_certificate_automation(net_connect, config: settings.ManagerConfig):
 
     out.wait("Waiting for CSR file to be created...")
     csr_found = False
-    max_attempts = int(config.csr_file_timeout_minutes * 12)
+    poll_interval_seconds = 5
+    max_attempts = max(
+        1, int(settings.CSR_FILE_TIMEOUT_SECONDS / poll_interval_seconds)
+    )
     for attempt in range(max_attempts):
         try:
             check_result = run_vshell_cmd(
@@ -204,11 +207,11 @@ def run_certificate_automation(net_connect, config: settings.ManagerConfig):
             out.detail(f"Check attempt {attempt + 1} failed: {e}")
 
         if attempt < max_attempts - 1:
-            time.sleep(5)
+            time.sleep(poll_interval_seconds)
 
     if not csr_found:
         out.error(
-            f"CSR file was not created after {config.csr_file_timeout_minutes} minute(s)"
+            f"CSR file was not created after {settings.CSR_FILE_TIMEOUT_SECONDS} second(s)"
         )
         return False
 

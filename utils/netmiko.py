@@ -44,6 +44,7 @@ def push_cli_config(
     config_commands,
     config_mode_command=None,
     commit_command: str | None = None,
+    read_timeout: float | None = None,
 ):
     """
     Push CLI configuration using Netmiko
@@ -53,6 +54,7 @@ def push_cli_config(
         config_commands: List of config commands or multi-line string
         config_mode_command: Optional config mode entry command
         commit_command: Optional commit command to run after config is sent
+        read_timeout: Optional Netmiko read timeout for config mode entry
 
     Returns:
         str: Command output
@@ -70,6 +72,7 @@ def push_cli_config(
     output = net_connect.send_config_set(
         config_commands,
         config_mode_command=config_mode_command,
+        read_timeout=read_timeout,
         exit_config_mode=False if commit_command else True,
     )
 
@@ -98,6 +101,7 @@ def push_initial_config(
     initial_config,
     config_mode_command=None,
     commit_command: str | None = None,
+    read_timeout: float | None = None,
 ):
     """Push initial device configuration."""
     out.header("Pushing Initial Configuration")
@@ -107,6 +111,7 @@ def push_initial_config(
         initial_config,
         config_mode_command=config_mode_command,
         commit_command=commit_command,
+        read_timeout=read_timeout,
     )
     out.success("Initial configuration complete")
 
@@ -116,6 +121,7 @@ def push_config_from_file(
     filepath,
     config_mode_command=None,
     commit_command: str | None = None,
+    read_timeout: float | None = None,
 ):
     """
     Read configuration from file and push to device
@@ -144,6 +150,7 @@ def push_config_from_file(
             config_content,
             config_mode_command=config_mode_command,
             commit_command=commit_command,
+            read_timeout=read_timeout,
         )
         out.success(f"Successfully applied configuration from {config_file.name}")
     except Exception as e:
@@ -167,6 +174,7 @@ def bootstrap_initial_config(
     initial_config: str,
     config_mode_command: str | None = None,
     commit_command: str | None = None,
+    read_timeout: float | None = None,
 ):
     out.step("Attempting to connect with default credentials...")
     net_connect = connect_to_device(
@@ -186,6 +194,7 @@ def bootstrap_initial_config(
                 initial_config,
                 config_mode_command=config_mode_command,
                 commit_command=commit_command,
+                read_timeout=read_timeout,
             )
 
         net_connect.disconnect()
@@ -206,6 +215,7 @@ def bootstrap_initial_config(
         initial_config,
         config_mode_command=config_mode_command,
         commit_command=commit_command,
+        read_timeout=read_timeout,
     )
     return net_connect
 

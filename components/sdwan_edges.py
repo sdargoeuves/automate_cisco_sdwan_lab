@@ -39,7 +39,7 @@ def generate_payg_licenses(
     count: int,
     wait_seconds: int = settings.WAIT_AFTER_GENERATING_PAYG_LICENSE,
 ) -> list[dict]:
-    out.header("EDGE: Generate PAYG Licenses")
+    out.header(f"EDGE - Generate PAYG Licenses")
     try:
         response = sdk_call_json(
             manager_config,
@@ -118,12 +118,12 @@ def run_edge_automation(
         f"Edge run start initial_config={initial_config} cert={cert} "
         f"config_file={config_file} label={label}",
     )
-    out.header("Automation: EDGE", f"Target: {label} ({config.ip})")
+    out.header(f"Automation: EDGE - {label}", f"Target: {config.ip}")
 
     net_connect = None
 
     if initial_config:
-        out.header(f"EDGE ({label}): Initial Configuration")
+        out.header(f"EDGE - {label}: Initial Configuration")
         net_connect = bootstrap_initial_config(
             device_label=label,
             device_type=device_type,
@@ -134,6 +134,7 @@ def run_edge_automation(
             initial_config=config.initial_config,
             config_mode_command="config-transaction",
             commit_command="commit",
+            read_timeout=settings.NETMIKO_INCREASED_READ_TIMEOUT,
         )
     else:
         net_connect = connect_to_device(
@@ -144,7 +145,7 @@ def run_edge_automation(
         )
 
     if config_file:
-        out.header(f"EDGE ({label}): Config File")
+        out.header(f"EDGE - {label}: Config File")
         net_connect = ensure_connection(
             net_connect,
             device_type,
@@ -157,10 +158,11 @@ def run_edge_automation(
             config_file,
             config_mode_command="config-transaction",
             commit_command="commit",
+            read_timeout=settings.NETMIKO_INCREASED_READ_TIMEOUT,
         )
 
     if cert:
-        out.header(f"EDGE ({label}): Certificate and License")
+        out.header(f"EDGE: {label} - Certificate and License")
         net_connect = ensure_connection(
             net_connect,
             device_type,

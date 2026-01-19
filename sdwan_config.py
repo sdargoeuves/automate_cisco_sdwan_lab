@@ -13,6 +13,8 @@ WAIT_BEFORE_AUTOMATING_VALIDATOR: int = 60
 WAIT_CSR_GENERATION: int = 30
 WAIT_BEFORE_ACTIVATING_EDGE: int = 60
 WAIT_AFTER_GENERATING_PAYG_LICENSE: int = 30
+NETMIKO_INCREASED_READ_TIMEOUT: int = 30
+CSR_FILE_TIMEOUT_SECONDS: int = 60
 
 # Certificate files (same across all devices)
 RSA_KEY: str = "SDWAN.key"
@@ -44,7 +46,6 @@ class ManagerConfig:
     signed_cert: str = SIGNED_CERT
     csr_file: str = "vmanage_csr"
     api_ready_timeout_minutes: int = 15
-    csr_file_timeout_minutes: int = 1
     initial_config: str = ""
 
 
@@ -60,7 +61,6 @@ class ValidatorConfig:
     root_cert: str = ROOT_CERT
     signed_cert: str = SIGNED_CERT
     csr_file: str = "vbond_csr"
-    csr_file_timeout_minutes: int = 1
     initial_config: str = ""
 
 
@@ -77,7 +77,6 @@ class ControllerConfig:
     root_cert: str = ROOT_CERT
     signed_cert: str = SIGNED_CERT
     csr_file: str = "vsmart_csr"
-    csr_file_timeout_minutes: int = 1
     initial_config: str = ""
 
 
@@ -94,7 +93,6 @@ class EdgeConfig:
     root_cert: str = ROOT_CERT
     signed_cert: str = SIGNED_CERT
     csr_file: str = "vsmart_csr"
-    csr_file_timeout_minutes: int = 1
     initial_config: str = ""
 
 
@@ -225,6 +223,38 @@ exit
 commit
 """
 
+EDGE3_INITIAL_CONFIG = f"""
+username admin password {UPDATED_PASSWORD}
+ip route 0.0.0.0 0.0.0.0 10.10.0.22
+int GigabitEthernet4
+ip address 10.10.0.21 255.255.255.252
+no shut
+exit
+commit
+
+system
+system-ip 10.194.58.19
+site-id 103
+organization-name ipf-netlab
+vbond 10.10.0.6
+exit
+
+interface Tunnel1
+ip unnumbered GigabitEthernet4
+tunnel source GigabitEthernet4
+tunnel mode sdwan
+exit
+
+sdwan
+interface GigabitEthernet4
+tunnel-interface
+encapsulation ipsec
+allow-service all
+color public-internet
+exit
+commit
+"""
+
 # =============================================================================
 # Configuration Instances
 # =============================================================================
@@ -251,4 +281,9 @@ edge1 = EdgeConfig(
 edge2 = EdgeConfig(
     ip="10.194.58.18",
     initial_config=EDGE2_INITIAL_CONFIG,
+)
+
+edge3 = EdgeConfig(
+    ip="10.194.58.19",
+    initial_config=EDGE3_INITIAL_CONFIG,
 )
