@@ -25,7 +25,7 @@ def connect_to_device(device_type, host, username, password, exit_on_failure=Tru
         "device_type": device_type,
         "host": host,
         "username": username,
-        "password": password
+        "password": password,
     }
 
     try:
@@ -150,6 +150,7 @@ def push_config_from_file(
         out.error(f"Failed to push configuration: {e}")
         sys.exit(1)
 
+
 def ensure_connection(net_connect, device_type, host, username, password):
     if net_connect:
         return net_connect
@@ -188,15 +189,11 @@ def bootstrap_initial_config(
             )
 
         net_connect.disconnect()
-        net_connect = connect_to_device(
-            device_type, host, username, updated_password
-        )
+        net_connect = connect_to_device(device_type, host, username, updated_password)
         return net_connect
 
     out.warning("Default credentials failed, trying configured password...")
-    net_connect = connect_to_device(
-        device_type, host, username, updated_password
-    )
+    net_connect = connect_to_device(device_type, host, username, updated_password)
     if not net_connect:
         out.error("Failed to connect with both default and updated passwords.")
         return None
@@ -211,6 +208,7 @@ def bootstrap_initial_config(
         commit_command=commit_command,
     )
     return net_connect
+
 
 def wait_for_prompt(net_connect, timeout: int = 30) -> str:
     deadline = time.monotonic() + timeout
@@ -247,9 +245,7 @@ def scp_copy_file(
         )
     )
     outputs.append(
-        net_connect.send_command_timing(
-            host, strip_prompt=False, strip_command=False
-        )
+        net_connect.send_command_timing(host, strip_prompt=False, strip_command=False)
     )
     outputs.append(
         net_connect.send_command_timing(
@@ -266,9 +262,7 @@ def scp_copy_file(
     )
     if "over write" in outputs[-1].lower() or "overwrite" in outputs[-1].lower():
         outputs.append(
-            net_connect.send_command_timing(
-                "", strip_prompt=False, strip_command=False
-            )
+            net_connect.send_command_timing("", strip_prompt=False, strip_command=False)
         )
     outputs.append(
         net_connect.send_command_timing(

@@ -1,7 +1,11 @@
 import time
 
 import sdwan_config as settings
-from utils.netmiko import bootstrap_initial_config, ensure_connection, push_config_from_file
+from utils.netmiko import (
+    bootstrap_initial_config,
+    ensure_connection,
+    push_config_from_file,
+)
 from utils.output import Output
 from utils.sdwan_sdk import SdkCallError, sdk_call_json, sdk_call_raw
 from utils.vshell import read_file_vshell, run_vshell_cmd
@@ -163,8 +167,7 @@ def run_certificate_automation(net_connect, config: settings.ManagerConfig):
                 data={"deviceIP": config.ip},
             )
         except SdkCallError as exc:
-            out.error(str(exc))
-            return False
+            out.warning(f"CSR attempt {csr_attempt}/{max_csr_attempts} failed: {exc}")
         else:
             out.success(
                 f"CSR generation successful (attempt {csr_attempt}/{max_csr_attempts})"
@@ -172,10 +175,9 @@ def run_certificate_automation(net_connect, config: settings.ManagerConfig):
             csr_generated = True
             break
 
-        # Failed
         if csr_attempt < max_csr_attempts:
             out.wait(
-                f"CSR attempt {csr_attempt}/{max_csr_attempts} failed, retrying in 5s..."
+                f"Retrying CSR generation in 5s (attempt {csr_attempt + 1}/{max_csr_attempts})..."
             )
             time.sleep(5)
         else:

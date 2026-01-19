@@ -8,13 +8,13 @@ from utils.netmiko import (
     push_config_from_file,
 )
 from utils.output import Output
-from utils.sdwan_sdk import SdkCallError, sdk_call_json
 from utils.sdwan_cert import (
     fetch_root_material_from_manager,
     install_signed_cert_on_manager,
     sign_csr,
     write_root_material_to_device,
 )
+from utils.sdwan_sdk import SdkCallError, sdk_call_json
 
 
 def run_controller_automation(

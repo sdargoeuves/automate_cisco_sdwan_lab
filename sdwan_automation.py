@@ -224,6 +224,10 @@ def main():
             initial_config=True,
             cert=True,
         )
+        out.wait(
+            f"Waiting {settings.WAIT_BEFORE_AUTOMATING_VALIDATOR}s before starting Validator automation..."
+        )
+        time.sleep(settings.WAIT_BEFORE_AUTOMATING_VALIDATOR)
         run_validator_automation(
             settings.validator,
             initial_config=True,

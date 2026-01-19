@@ -19,7 +19,9 @@ from utils.netmiko import (
 )
 from utils.output import Output
 from utils.sdwan_sdk import SdkCallError, sdk_call_json
+
 out = Output(__name__)
+
 
 def _parse_payg_activity(activity_list: str) -> list[dict]:
     if not activity_list:
@@ -35,7 +37,7 @@ def _parse_payg_activity(activity_list: str) -> list[dict]:
 def generate_payg_licenses(
     manager_config,
     count: int,
-    wait_seconds: int = 30,
+    wait_seconds: int = settings.WAIT_AFTER_GENERATING_PAYG_LICENSE,
 ) -> list[dict]:
     out.header("EDGE: Generate PAYG Licenses")
     try:
@@ -184,7 +186,9 @@ def run_edge_automation(
             net_connect.disconnect()
             raise SystemExit(1)
         _install_root_cert(net_connect)
-        out.wait(f"Waiting {settings.WAIT_BEFORE_ACTIVATING_EDGE}s before activating license...")
+        out.wait(
+            f"Waiting {settings.WAIT_BEFORE_ACTIVATING_EDGE}s before activating license..."
+        )
         time.sleep(settings.WAIT_BEFORE_ACTIVATING_EDGE)
         _activate_edge_license(net_connect, license_entry)
 

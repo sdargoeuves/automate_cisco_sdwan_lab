@@ -8,13 +8,13 @@ from utils.netmiko import (
     push_config_from_file,
 )
 from utils.output import Output
-from utils.sdwan_sdk import SdkCallError, sdk_call_json
 from utils.sdwan_cert import (
     fetch_root_material_from_manager,
     install_signed_cert_on_manager,
     sign_csr,
     write_root_material_to_device,
 )
+from utils.sdwan_sdk import SdkCallError, sdk_call_json
 
 
 def run_validator_automation(
@@ -125,8 +125,10 @@ def run_certificate_automation(net_connect, config: settings.ValidatorConfig) ->
     out.success("Validator added to Manager successfully")
 
     # Wait for CSR to be generated on the validator
-    out.wait("Waiting Validator to be added and CSR to be generated (30 seconds)...")
-    time.sleep(30)
+    out.wait(
+        f"Waiting Validator to be added and CSR to be generated ({settings.CSR_WAIT_TIME} seconds)..."
+    )
+    time.sleep(settings.CSR_WAIT_TIME)
 
     signed_cert_content = sign_csr(net_connect, config)
 

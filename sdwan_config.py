@@ -9,8 +9,10 @@ DEFAULT_PASSWORD: str = "admin"
 UPDATED_PASSWORD: str = "admin@123"
 PORT: str = "443"
 WAIT_BEFORE_AUTOMATING_CONTROLLER: int = 120
-WAIT_CSR_GENERATION: int = 20
+WAIT_BEFORE_AUTOMATING_VALIDATOR: int = 60
+WAIT_CSR_GENERATION: int = 30
 WAIT_BEFORE_ACTIVATING_EDGE: int = 60
+WAIT_AFTER_GENERATING_PAYG_LICENSE: int = 30
 
 # Certificate files (same across all devices)
 RSA_KEY: str = "SDWAN.key"
@@ -77,6 +79,7 @@ class ControllerConfig:
     csr_file: str = "vsmart_csr"
     csr_file_timeout_minutes: int = 1
     initial_config: str = ""
+
 
 @dataclass(frozen=True)
 class EdgeConfig:
