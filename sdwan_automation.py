@@ -33,7 +33,7 @@ from components.sdwan_manager import run_manager_automation
 from components.sdwan_validator import run_validator_automation
 from utils.component_sync import reboot_out_of_sync_components
 from utils.logging import setup_logging
-from utils.manager_api_status import show_controller_status
+from utils.manager_api_status import show_controller_status, show_edge_health_status
 from utils.output import Output
 from utils.sdwan_sdk import run_sdwan_cli
 
@@ -230,19 +230,34 @@ def main():
             cert=True,
         )
         out.wait(
-            f"Waiting {settings.WAIT_BEFORE_CONTROLLER}s before starting Controller automation..."
+            f"Waiting {settings.WAIT_BEFORE_AUTOMATING_CONTROLLER}s before starting Controller automation..."
         )
-        time.sleep(settings.WAIT_BEFORE_CONTROLLER)
+        time.sleep(settings.WAIT_BEFORE_AUTOMATING_CONTROLLER)
         run_controller_automation(
             settings.controller,
             initial_config=True,
             cert=True,
         )
+        show_controller_status(settings.manager, out=out)
+        edge_configs = [
+            value
+            for value in vars(settings).values()
+            if isinstance(value, settings.EdgeConfig)
+        ]
+        if not edge_configs:
+            out.warning("No edge configs found in sdwan_config.py.")
+        else:
+            run_edges_automation(
+                edge_configs,
+                initial_config=True,
+                cert=True,
+            )
         out.header("All Components Complete")
         out.success(
-            "First-boot automation finished for Manager, Validator, and Controller"
+            "First-boot automation finished for Manager, Validator, Controller, and Edges"
         )
-        reboot_out_of_sync_components(settings.manager, out=out)
+        reboot_out_of_sync_components(settings.manager)
+        show_edge_health_status(settings.manager, out=out)
         return
 
     if args.component == "show":
@@ -271,6 +286,7 @@ def main():
         out.banner("Cisco SD-WAN Show Information")
         if args.resource == "devices":
             show_controller_status(settings.manager, out=out)
+            show_edge_health_status(settings.manager, out=out)
         return
     if args.component == "edges":
         has_config_file = hasattr(args, "config_file") and args.config_file
@@ -317,7 +333,7 @@ def main():
         if not args.sdk_args:
             out.warning("No SDK arguments provided. Example: sdk show device")
             return
-        result = run_sdwan_cli(settings, args.sdk_args, out_override=out)
+        result = run_sdwan_cli(settings, args.sdk_args)
         if result != 0:
             raise SystemExit(result)
         return

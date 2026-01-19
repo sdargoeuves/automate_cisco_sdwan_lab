@@ -179,13 +179,10 @@ def sdk_call_raw(
     return True
 
 
-def run_sdwan_cli(
-    settings, sdk_args: list[str], out_override: Output | None = None
-) -> int:
-    out_local = out_override or out
+def run_sdwan_cli(settings, sdk_args: list[str]) -> int:
     sdwan_cli = shutil.which("sdwan")
     if not sdwan_cli:
-        out_local.error("Sastre CLI not found on PATH. Install cisco-sdwan first.")
+        out.error("Sastre CLI not found on PATH. Install cisco-sdwan first.")
         return 1
 
     base_args = [
@@ -198,6 +195,6 @@ def run_sdwan_cli(
         "--port",
         settings.manager.port,
     ]
-    out_local.step(f"Running: {sdwan_cli} {' '.join(base_args + sdk_args)}")
+    out.step(f"Running: {sdwan_cli} {' '.join(base_args + sdk_args)}")
     result = subprocess.run([sdwan_cli, *base_args, *sdk_args])
     return result.returncode

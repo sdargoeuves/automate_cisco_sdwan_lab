@@ -5,10 +5,12 @@ from dataclasses import dataclass
 # =============================================================================
 ORG: str = "ipf-netlab"
 USERNAME: str = "admin"
-PASSWORD: str = "admin@123"
+DEFAULT_PASSWORD: str = "admin"
+UPDATED_PASSWORD: str = "admin@123"
 PORT: str = "443"
-WAIT_BEFORE_CONTROLLER: int = 120
+WAIT_BEFORE_AUTOMATING_CONTROLLER: int = 120
 WAIT_CSR_GENERATION: int = 20
+WAIT_BEFORE_ACTIVATING_EDGE: int = 60
 
 # Certificate files (same across all devices)
 RSA_KEY: str = "SDWAN.key"
@@ -28,7 +30,8 @@ class ManagerConfig:
     ip: str
     port: str = PORT
     username: str = USERNAME
-    password: str = PASSWORD
+    password: str = UPDATED_PASSWORD
+    default_password: str = DEFAULT_PASSWORD
     org: str = ORG
     validator_ip: str = VALIDATOR_IP
     country: str = "FI"
@@ -47,7 +50,8 @@ class ManagerConfig:
 class ValidatorConfig:
     ip: str
     username: str = USERNAME
-    password: str = PASSWORD
+    password: str = UPDATED_PASSWORD
+    default_password: str = DEFAULT_PASSWORD
     org: str = ORG
     validator_ip: str = VALIDATOR_IP
     rsa_key: str = RSA_KEY
@@ -62,7 +66,8 @@ class ValidatorConfig:
 class ControllerConfig:
     ip: str
     username: str = USERNAME
-    password: str = PASSWORD
+    password: str = UPDATED_PASSWORD
+    default_password: str = DEFAULT_PASSWORD
     org: str = ORG
     validator_ip: str = VALIDATOR_IP
     controller_ip: str = CONTROLLER_IP
@@ -77,7 +82,8 @@ class ControllerConfig:
 class EdgeConfig:
     ip: str
     username: str = USERNAME
-    password: str = "admin"
+    password: str = UPDATED_PASSWORD
+    default_password: str = DEFAULT_PASSWORD
     org: str = ORG
     validator_ip: str = VALIDATOR_IP
     controller_ip: str = CONTROLLER_IP
@@ -92,11 +98,11 @@ class EdgeConfig:
 # =============================================================================
 # Initial Configurations (CLI to push on first boot)
 # =============================================================================
-MANAGER_INITIAL_CONFIG = """
+MANAGER_INITIAL_CONFIG = f"""
 system
 aaa
 user admin
-password admin@123
+password {UPDATED_PASSWORD}
 site-id 255
 organization-name ipf-netlab
 system-ip 10.194.58.14
@@ -111,11 +117,11 @@ tunnel-interface
 allow-service all
 """
 
-VALIDATOR_INITIAL_CONFIG = """
+VALIDATOR_INITIAL_CONFIG = f"""
 system
 aaa
 user admin
-password admin@123
+password {UPDATED_PASSWORD}
 site-id 255
 organization-name ipf-netlab
 system-ip 10.194.58.16
@@ -133,11 +139,11 @@ encapsulation ipsec
 allow-service all
 """
 
-CONTROLLER_INITIAL_CONFIG = """
+CONTROLLER_INITIAL_CONFIG = f"""
 system
 aaa
 user admin
-password admin@123
+password {UPDATED_PASSWORD}
 site-id 255
 organization-name ipf-netlab
 system-ip 10.194.58.15
@@ -152,7 +158,8 @@ tunnel-interface
 allow-service all
 """
 
-EDGE1_INITIAL_CONFIG = """
+EDGE1_INITIAL_CONFIG = f"""
+username admin password {UPDATED_PASSWORD}
 ip route 0.0.0.0 0.0.0.0 10.10.0.14
 int GigabitEthernet4
 ip address 10.10.0.13 255.255.255.252
@@ -183,7 +190,8 @@ exit
 commit
 """
 
-EDGE2_INITIAL_CONFIG = """
+EDGE2_INITIAL_CONFIG = f"""
+username admin password {UPDATED_PASSWORD}
 ip route 0.0.0.0 0.0.0.0 10.10.0.18
 int GigabitEthernet4
 ip address 10.10.0.17 255.255.255.252

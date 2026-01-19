@@ -124,3 +124,83 @@ def show_controller_status(manager_config, out: Output | None = None) -> None:
     for line in _build_table(headers, rows):
         print(line)
         out.log_only(line)
+
+
+def _format_ratio(up_value: object, total_value: object) -> str:
+    up = _format_cell(up_value)
+    total = _format_cell(total_value)
+    if up == "-" and total == "-":
+        return "-"
+    return f"{up}/{total}"
+
+
+def get_edge_health_items(manager_config, out: Output | None = None) -> list[dict]:
+    out = out or Output(__name__)
+    try:
+        response = sdk_call_json(
+            manager_config,
+            "GET",
+            "/dataservice/health/devices?page_size=12000&personality=vedge",
+        )
+    except SdkCallError as exc:
+        out.warning(str(exc))
+        return []
+
+    try:
+        items = response.get("devices", [])
+    except AttributeError:
+        out.warning("Failed to parse edge health response as JSON.")
+        out.detail(str(response))
+        return []
+
+    if not items:
+        out.info("No edge health entries returned.")
+        return []
+
+    return items
+
+
+def show_edge_health_status(manager_config, out: Output | None = None) -> None:
+    out = out or Output(__name__)
+    out.header("Monitor > Network > WAN Edge")
+
+    items = get_edge_health_items(manager_config, out=out)
+    if not items:
+        return
+
+    headers = [
+        "Name",
+        "System IP",
+        "Site ID",
+        "Reachability",
+        "Health",
+        "Model",
+        "Version",
+        "Control Conns",
+        "BFD",
+    ]
+    rows: list[list[str]] = []
+    for item in items:
+        rows.append(
+            [
+                _format_cell(item.get("name")),
+                _format_cell(item.get("system_ip")),
+                _format_cell(item.get("site_id")),
+                _format_cell(item.get("reachability")),
+                _format_cell(item.get("health")),
+                _format_cell(item.get("device_model")),
+                _format_cell(item.get("software_version")),
+                _format_ratio(
+                    item.get("control_connections_up"),
+                    item.get("control_connections"),
+                ),
+                _format_ratio(
+                    item.get("bfd_sessions_up"),
+                    item.get("bfd_sessions"),
+                ),
+            ]
+        )
+
+    for line in _build_table(headers, rows):
+        print(line)
+        out.log_only(line)

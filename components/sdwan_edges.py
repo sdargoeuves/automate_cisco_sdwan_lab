@@ -7,14 +7,19 @@ Edge (vEdge/C8000V) automation workflow:
 
 import re
 import time
-from pathlib import Path
 from typing import Optional
 
 import sdwan_config as settings
-from utils.netmiko import connect_to_device
+from utils.netmiko import (
+    bootstrap_initial_config,
+    connect_to_device,
+    ensure_connection,
+    push_config_from_file,
+    scp_copy_file,
+)
 from utils.output import Output
 from utils.sdwan_sdk import SdkCallError, sdk_call_json
-
+out = Output(__name__)
 
 def _parse_payg_activity(activity_list: str) -> list[dict]:
     if not activity_list:
@@ -30,7 +35,6 @@ def _parse_payg_activity(activity_list: str) -> list[dict]:
 def generate_payg_licenses(
     manager_config,
     count: int,
-    out: Output,
     wait_seconds: int = 30,
 ) -> list[dict]:
     out.header("EDGE: Generate PAYG Licenses")
@@ -64,157 +68,7 @@ def generate_payg_licenses(
     return licenses
 
 
-def _send_edge_config(net_connect, config_text: str, out: Output) -> None:
-    if not config_text.strip():
-        out.warning("Edge initial config is empty; skipping.")
-        return
-
-    lines = [
-        line.strip()
-        for line in config_text.strip().splitlines()
-        if line.strip()
-    ]
-    config_lines = []
-    for line in lines:
-        lower = line.lower()
-        if lower in ("config-t",):
-            continue
-        config_lines.append(line)
-
-    out.step("Pushing config using send_config_set (config-transaction)...")
-    try:
-        output = net_connect.send_config_set(
-            config_lines,
-            config_mode_command="config-transaction",
-            strip_prompt=False,
-            strip_command=False,
-        )
-        out.log_only(output, level="debug")
-        out.success("Edge configuration applied")
-        return
-    except Exception as exc:
-        out.warning(
-            "send_config_set failed in config-transaction mode; "
-            f"falling back to block send. Error: {exc}"
-        )
-
-    out.step("Entering configure-transaction mode for block send...")
-    entered = False
-    output = ""
-    for cmd in ("config-transaction", "config-tr"):
-        output += net_connect.send_command_timing(
-            cmd, strip_prompt=False, strip_command=False
-        )
-        time.sleep(1)
-        try:
-            prompt = net_connect.find_prompt()
-        except Exception as exc:
-            out.detail(f"Prompt check failed after {cmd}: {exc}")
-            prompt = ""
-        if "(config)#" in prompt:
-            entered = True
-            break
-        output += net_connect.send_command_timing(
-            "", strip_prompt=False, strip_command=False
-        )
-        time.sleep(1)
-        try:
-            prompt = net_connect.find_prompt()
-        except Exception:
-            prompt = ""
-        if "(config)#" in prompt:
-            entered = True
-            break
-
-    if not entered:
-        out.warning("Failed to enter config-transaction mode; config may not apply.")
-
-    config_block = "\n".join(config_lines) + "\n"
-    output += net_connect.send_command_timing(
-        config_block, strip_prompt=False, strip_command=False
-    )
-    output += net_connect.send_command_timing(
-        "end", strip_prompt=False, strip_command=False
-    )
-    out.log_only(output, level="debug")
-    out.success("Edge configuration applied")
-
-
-def _load_config_from_file(filepath: str) -> str:
-    config_file = Path(filepath)
-    if not config_file.exists():
-        raise FileNotFoundError(f"Configuration file not found: {filepath}")
-
-    content = config_file.read_text()
-    if not content.strip():
-        raise ValueError(f"Configuration file is empty: {filepath}")
-    return content
-
-
-def _copy_root_cert_from_validator(
-    net_connect,
-    config: settings.EdgeConfig,
-    out: Output,
-) -> bool:
-    out.step("Copying root certificate from validator via SCP...")
-    outputs = []
-    outputs.append(
-        net_connect.send_command_timing(
-            "copy scp: bootflash:/sdwan/", strip_prompt=False, strip_command=False
-        )
-    )
-    outputs.append(
-        net_connect.send_command_timing(
-            config.validator_ip, strip_prompt=False, strip_command=False
-        )
-    )
-    outputs.append(
-        net_connect.send_command_timing(
-            settings.validator.username, strip_prompt=False, strip_command=False
-        )
-    )
-    outputs.append(
-        net_connect.send_command_timing(
-            settings.ROOT_CERT, strip_prompt=False, strip_command=False
-        )
-    )
-    outputs.append(
-        net_connect.send_command_timing("", strip_prompt=False, strip_command=False)
-    )
-    outputs.append(
-        net_connect.send_command_timing(
-            settings.validator.password, strip_prompt=False, strip_command=False
-        )
-    )
-    out.log_only("\n".join(outputs), level="debug")
-    _wait_for_prompt(net_connect, out)
-
-    output_text = "\n".join(outputs)
-    if "Authentication failed" in output_text or "%Error" in output_text:
-        out.error("Failed to copy root certificate via SCP.")
-        return False
-    if "bytes copied" not in output_text and "copied" not in output_text:
-        out.warning("SCP copy did not confirm success; check logs if needed.")
-    else:
-        out.success("Root certificate copied to edge")
-    return True
-
-
-def _wait_for_prompt(net_connect, out: Output, timeout: int = 30) -> str:
-    deadline = time.monotonic() + timeout
-    prompt = ""
-    while time.monotonic() < deadline:
-        try:
-            prompt = net_connect.find_prompt()
-            if prompt:
-                return prompt
-        except Exception as exc:
-            out.detail(f"Prompt check failed: {exc}")
-        time.sleep(1)
-    out.warning("Timed out waiting for device prompt.")
-    return prompt
-
-def _install_root_cert(net_connect, out: Output) -> None:
+def _install_root_cert(net_connect) -> None:
     out.step("Installing root certificate on edge...")
     output = net_connect.send_command_timing(
         f"request platform software sdwan root-cert-chain install "
@@ -222,7 +76,7 @@ def _install_root_cert(net_connect, out: Output) -> None:
         strip_prompt=False,
         strip_command=False,
     )
-    out.log_only(output, level="debug")
+    out.log_only(output)
     if "Password:" in output:
         out.warning("Unexpected password prompt during root cert install.")
     out.success("Root certificate installed")
@@ -231,7 +85,6 @@ def _install_root_cert(net_connect, out: Output) -> None:
 def _activate_edge_license(
     net_connect,
     license_entry: dict,
-    out: Output,
 ) -> None:
     chassis = license_entry.get("chassis")
     token = license_entry.get("token")
@@ -245,7 +98,7 @@ def _activate_edge_license(
         strip_prompt=False,
         strip_command=False,
     )
-    out.log_only(output, level="debug")
+    out.log_only(output)
     out.success("PAYG license activated")
 
 
@@ -255,48 +108,85 @@ def run_edge_automation(
     config_file: Optional[str] = None,
     cert: bool = False,
     device_type: str = "cisco_ios",
+    edge_name: Optional[str] = None,
 ) -> None:
     out = Output(__name__)
+    label = edge_name or "edge"
     out.log_only(
         f"Edge run start initial_config={initial_config} cert={cert} "
-        f"config_file={config_file}",
+        f"config_file={config_file} label={label}",
     )
-    out.header("Automation: EDGE", f"Target: {config.ip}")
+    out.header("Automation: EDGE", f"Target: {label} ({config.ip})")
 
-    net_connect = connect_to_device(
-        device_type,
-        config.ip,
-        config.username,
-        config.password,
-    )
+    net_connect = None
 
     if initial_config:
-        out.header("EDGE: Initial Configuration")
-        _send_edge_config(net_connect, config.initial_config, out)
+        out.header(f"EDGE ({label}): Initial Configuration")
+        net_connect = bootstrap_initial_config(
+            device_label=label,
+            device_type=device_type,
+            host=config.ip,
+            username=config.username,
+            default_password=config.default_password,
+            updated_password=config.password,
+            initial_config=config.initial_config,
+            config_mode_command="config-transaction",
+            commit_command="commit",
+        )
+    else:
+        net_connect = connect_to_device(
+            device_type,
+            config.ip,
+            config.username,
+            config.password,
+        )
 
     if config_file:
-        out.header("EDGE: Config File")
-        try:
-            content = _load_config_from_file(config_file)
-        except (FileNotFoundError, ValueError) as exc:
-            out.error(str(exc))
-            net_connect.disconnect()
-            raise SystemExit(1)
-        _send_edge_config(net_connect, content, out)
+        out.header(f"EDGE ({label}): Config File")
+        net_connect = ensure_connection(
+            net_connect,
+            device_type,
+            config.ip,
+            config.username,
+            config.password,
+        )
+        push_config_from_file(
+            net_connect,
+            config_file,
+            config_mode_command="config-transaction",
+            commit_command="commit",
+        )
 
     if cert:
-        out.header("EDGE: Certificate and License")
-        licenses = generate_payg_licenses(settings.manager, 1, out)
+        out.header(f"EDGE ({label}): Certificate and License")
+        net_connect = ensure_connection(
+            net_connect,
+            device_type,
+            config.ip,
+            config.username,
+            config.password,
+        )
+        licenses = generate_payg_licenses(settings.manager, 1)
         if not licenses:
             out.error("Failed to generate PAYG license; aborting edge automation.")
             net_connect.disconnect()
             raise SystemExit(1)
         license_entry = licenses[0]
-        if not _copy_root_cert_from_validator(net_connect, config, out):
+        if not scp_copy_file(
+            net_connect,
+            host=config.validator_ip,
+            username=settings.validator.username,
+            password=settings.validator.password,
+            remote_file=settings.ROOT_CERT,
+            destination="bootflash:/sdwan/",
+            description="Copying root certificate from validator via SCP...",
+        ):
             net_connect.disconnect()
             raise SystemExit(1)
-        _install_root_cert(net_connect, out)
-        _activate_edge_license(net_connect, license_entry, out)
+        _install_root_cert(net_connect)
+        out.wait(f"Waiting {settings.WAIT_BEFORE_ACTIVATING_EDGE}s before activating license...")
+        time.sleep(settings.WAIT_BEFORE_ACTIVATING_EDGE)
+        _activate_edge_license(net_connect, license_entry)
 
     net_connect.disconnect()
     out.success("Disconnected from Edge")
@@ -315,10 +205,17 @@ def run_edges_automation(
         out.warning("No edge configs provided; nothing to do.")
         return
 
+    edge_name_by_id = {
+        id(cfg): name
+        for name, cfg in vars(settings).items()
+        if isinstance(cfg, settings.EdgeConfig)
+    }
     for edge_config in edge_configs:
+        edge_name = edge_name_by_id.get(id(edge_config), "edge")
         run_edge_automation(
             edge_config,
             initial_config=initial_config,
             config_file=config_file,
             cert=cert,
+            edge_name=edge_name,
         )

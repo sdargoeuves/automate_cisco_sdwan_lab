@@ -7,7 +7,7 @@ from utils.manager_api_status import (
 )
 from utils.netmiko import reboot_device
 from utils.output import Output
-
+out = Output(__name__)
 
 def _format_component_label(item: dict) -> str:
     device_type = item.get("deviceType") or "unknown"
@@ -17,7 +17,6 @@ def _format_component_label(item: dict) -> str:
 
 def reboot_out_of_sync_components(
     manager_config,
-    out: Output,
     initial_wait: int = 30,
     retry_wait: int = 120,
 ) -> None:
@@ -43,7 +42,7 @@ def reboot_out_of_sync_components(
         out.success("Components recovered and are now in sync.")
         return
 
-    out.warning("Components remain out of sync; sending reboot commands (skipped for now whils investigating...)")
+    out.warning("Components remain out of sync; a reboot might help, code is ready but not applied at the moment to do this automatically.")
     # for item in still_out_of_sync:
     #     system_ip = item.get("system-ip")
     #     if not system_ip:
@@ -55,5 +54,4 @@ def reboot_out_of_sync_components(
     #         system_ip,
     #         settings.USERNAME,
     #         settings.PASSWORD,
-    #         out_override=out,
     #     )

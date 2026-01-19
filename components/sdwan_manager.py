@@ -1,7 +1,7 @@
 import time
 
 import sdwan_config as settings
-from utils.netmiko import connect_to_device, push_config_from_file, push_initial_config
+from utils.netmiko import bootstrap_initial_config, ensure_connection, push_config_from_file
 from utils.output import Output
 from utils.sdwan_sdk import SdkCallError, sdk_call_json, sdk_call_raw
 from utils.vshell import read_file_vshell, run_vshell_cmd
@@ -26,46 +26,40 @@ def run_manager_automation(
 
     if initial_config:
         out.header("MANAGER: Initial Configuration")
-
-        out.step("Attempting to connect with default credentials...")
-        net_connect = connect_to_device(
-            "cisco_viptela",
-            config.ip,
-            config.username,
-            config.username,
-            exit_on_failure=False,
+        net_connect = bootstrap_initial_config(
+            device_label="Manager",
+            device_type="cisco_viptela",
+            host=config.ip,
+            username=config.username,
+            default_password=config.default_password,
+            updated_password=config.password,
+            initial_config=config.initial_config,
+            commit_command="commit",
         )
-
-        if net_connect:
-            if not config.initial_config.strip():
-                out.warning("Manager initial config is empty; skipping.")
-            else:
-                push_initial_config(net_connect, config.initial_config)
-
-            net_connect.disconnect()
-            net_connect = connect_to_device(
-                "cisco_viptela", config.ip, config.username, config.password
-            )
-        else:
-            out.warning("Default credentials failed, trying configured password...")
-            net_connect = connect_to_device(
-                "cisco_viptela", config.ip, config.username, config.password
-            )
-            out.success(
-                "Already configured with updated password - skipping initial config push"
-            )
 
     if config_file:
         if not net_connect:
-            net_connect = connect_to_device(
-                "cisco_viptela", config.ip, config.username, config.password
+            net_connect = ensure_connection(
+                net_connect,
+                "cisco_viptela",
+                config.ip,
+                config.username,
+                config.password,
             )
-        push_config_from_file(net_connect, config_file)
+        push_config_from_file(
+            net_connect,
+            config_file,
+            commit_command="commit",
+        )
 
     if cert:
         if not net_connect:
-            net_connect = connect_to_device(
-                "cisco_viptela", config.ip, config.username, config.password
+            net_connect = ensure_connection(
+                net_connect,
+                "cisco_viptela",
+                config.ip,
+                config.username,
+                config.password,
             )
 
         out.header("MANAGER: Certificate Configuration")
