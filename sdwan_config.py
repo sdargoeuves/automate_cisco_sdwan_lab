@@ -159,107 +159,111 @@ tunnel-interface
 allow-service all
 """
 
-EDGE1_INITIAL_CONFIG = f"""
-username admin password {UPDATED_PASSWORD}
+def build_edge_initial_config(
+    name: str,
+    system_ip: str,
+    site_id: int,
+    inet_ip: str,
+    inet_gw: str,
+    inet_desc: str,
+    mpls_ip: str,
+    mpls_gw: str,
+    mpls_desc: str,
+) -> str:
+    return f"""
 no ip domain lookup
-ip route 0.0.0.0 0.0.0.0 10.10.0.14
+username admin password {UPDATED_PASSWORD}
+
+ip route 0.0.0.0 0.0.0.0 {inet_gw}
 int GigabitEthernet4
-ip address 10.10.0.13 255.255.255.252
-description "edge1 to inet0"
-no shut
+no shutdown
+ip address {inet_ip} 255.255.255.252
+description "{inet_desc}"
 exit
-commit
+
+!!! this default route will currently break theh automation
+!ip route 0.0.0.0 0.0.0.0 {mpls_gw}
+!!! DO NOT USE YET
+int GigabitEthernet3
+no shutdown
+ip address {mpls_ip} 255.255.255.252
+description "{mpls_desc}"
+exit
 
 system
-system-ip 10.194.58.17
-site-id 101
-organization-name ipf-netlab
-vbond 10.10.0.6
+system-ip {system_ip}
+site-id {site_id}
+organization-name {ORG}
+vbond {VALIDATOR_IP}
 exit
 
 interface Tunnel1
+no shutdown
 ip unnumbered GigabitEthernet4
 tunnel source GigabitEthernet4
+tunnel mode sdwan
+exit
+interface Tunnel2
+ip unnumbered GigabitEthernet3
+tunnel source GigabitEthernet3
 tunnel mode sdwan
 exit
 
 sdwan
 interface GigabitEthernet4
+no shutdown
 tunnel-interface
 encapsulation ipsec
 allow-service all
 color public-internet
 exit
 commit
-"""
-
-EDGE2_INITIAL_CONFIG = f"""
-username admin password {UPDATED_PASSWORD}
-no ip domain lookup
-ip route 0.0.0.0 0.0.0.0 10.10.0.18
-int GigabitEthernet4
-ip address 10.10.0.17 255.255.255.252
-description "edge2 to inet0"
-no shut
-exit
-commit
-
-system
-system-ip 10.194.58.18
-site-id 102
-organization-name ipf-netlab
-vbond 10.10.0.6
-exit
-
-interface Tunnel1
-ip unnumbered GigabitEthernet4
-tunnel source GigabitEthernet4
-tunnel mode sdwan
-exit
-
-sdwan
-interface GigabitEthernet4
+interface GigabitEthernet3
+no shutdown
 tunnel-interface
 encapsulation ipsec
 allow-service all
-color public-internet
+color mpls
 exit
 commit
 """
 
-EDGE3_INITIAL_CONFIG = f"""
-username admin password {UPDATED_PASSWORD}
-no ip domain lookup
-ip route 0.0.0.0 0.0.0.0 10.10.0.22
-int GigabitEthernet4
-ip address 10.10.0.21 255.255.255.252
-description "edge3 to inet0"
-no shut
-exit
-commit
 
-system
-system-ip 10.194.58.19
-site-id 103
-organization-name ipf-netlab
-vbond 10.10.0.6
-exit
+EDGE1_INITIAL_CONFIG = build_edge_initial_config(
+    name="edge1",
+    system_ip="10.194.58.17",
+    site_id=101,
+    inet_ip="10.10.0.13",
+    inet_gw="10.10.0.14",
+    inet_desc="edge1 to inet0",
+    mpls_ip="10.1.0.5",
+    mpls_gw="10.1.0.6",
+    mpls_desc="edge1 to pe1",
+)
 
-interface Tunnel1
-ip unnumbered GigabitEthernet4
-tunnel source GigabitEthernet4
-tunnel mode sdwan
-exit
+EDGE2_INITIAL_CONFIG = build_edge_initial_config(
+    name="edge2",
+    system_ip="10.194.58.18",
+    site_id=102,
+    inet_ip="10.10.0.17",
+    inet_gw="10.10.0.18",
+    inet_desc="edge2 to inet0",
+    mpls_ip="10.1.0.17",
+    mpls_gw="10.1.0.18",
+    mpls_desc="edge2 to pe2",
+)
 
-sdwan
-interface GigabitEthernet4
-tunnel-interface
-encapsulation ipsec
-allow-service all
-color public-internet
-exit
-commit
-"""
+EDGE3_INITIAL_CONFIG = build_edge_initial_config(
+    name="edge3",
+    system_ip="10.194.58.19",
+    site_id=103,
+    inet_ip="10.10.0.21",
+    inet_gw="10.10.0.22",
+    inet_desc="edge3 to inet0",
+    mpls_ip="10.1.0.29",
+    mpls_gw="10.1.0.30",
+    mpls_desc="edge3 to pe3",
+)
 
 # =============================================================================
 # Configuration Instances
