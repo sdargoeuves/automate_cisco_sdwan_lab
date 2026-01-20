@@ -1,0 +1,215 @@
+{
+    "templateName": "CUSTOM-AAA-TEMPLATE",
+    "templateDescription": "CUSTOM-AAA-TEMPLATE",
+    "templateType": "cedge_aaa",
+    "deviceType": [
+        "vedge-C8000V"
+    ],
+    "templateMinVersion": "15.0.0",
+    "templateDefinition": {
+        "user": {
+            "vipType": "constant",
+            "vipValue": [
+                {
+                    "vipOptional": false,
+                    "name": {
+                        "vipObjectType": "object",
+                        "vipType": "constant",
+                        "vipValue": "admin",
+                        "vipVariableName": "user_name_0"
+                    },
+                    "password": {
+                        "vipObjectType": "object",
+                        "vipType": "constant",
+                        "vipValue": "$6$307460d52f471058$NCLk57tF7oHPY9Bs1tIRS/ADlwcW3PzlbIz.Ya8bMWuP3lsyml6HySGMG2QL3WqjwAau7rhF5rvw7hXTuO14l0",
+                        "vipVariableName": "user_password"
+                    },
+                    "secret": {
+                        "vipObjectType": "object",
+                        "vipType": "constant",
+                        "vipValue": "$9$2V.H3lIL2/QF3U$KFMDaXvw4bdbzZfOxic1V1YtdnBhd8VZl.6O35Dod66",
+                        "vipVariableName": "password_secret"
+                    },
+                    "pubkey-chain": {
+                        "vipObjectType": "tree",
+                        "vipType": "ignore",
+                        "vipValue": [],
+                        "vipVariableName": "user_pubkey_chain_0",
+                        "vipPrimaryKey": [
+                            "key-string"
+                        ]
+                    },
+                    "privilege": {
+                        "vipObjectType": "object",
+                        "vipType": "constant",
+                        "vipValue": "15",
+                        "vipVariableName": "user_privilege_0"
+                    },
+                    "priority-order": [
+                        "name",
+                        "password",
+                        "secret",
+                        "pubkey-chain",
+                        "privilege"
+                    ]
+                }
+            ],
+            "vipObjectType": "tree",
+            "vipPrimaryKey": [
+                "name"
+            ]
+        },
+        "tacacs": {
+            "vipType": "ignore",
+            "vipValue": []
+        },
+        "radius": {
+            "vipType": "ignore",
+            "vipValue": []
+        },
+        "accounting": {
+            "dot1x": {
+                "default": {
+                    "start-stop": {
+                        "accounting_group": {
+                            "vipObjectType": "object",
+                            "vipType": "ignore",
+                            "vipValue": "false",
+                            "vipVariableName": "dot1x_acct_group"
+                        }
+                    }
+                }
+            },
+            "accounting-rule": {
+                "vipObjectType": "tree",
+                "vipType": "ignore",
+                "vipValue": [],
+                "vipPrimaryKey": [
+                    "rule-id"
+                ]
+            }
+        },
+        "authorization": {
+            "authorization-console": {
+                "vipObjectType": "object",
+                "vipType": "ignore",
+                "vipValue": "false",
+                "vipVariableName": "auth_console"
+            },
+            "authorization-config-commands": {
+                "vipObjectType": "object",
+                "vipType": "ignore",
+                "vipValue": "false",
+                "vipVariableName": "auth_config_cmds"
+            },
+            "authorization-rule": {
+                "vipObjectType": "tree",
+                "vipType": "ignore",
+                "vipValue": [],
+                "vipPrimaryKey": [
+                    "rule-id"
+                ]
+            }
+        },
+        "authentication": {
+            "dot1x": {
+                "default": {
+                    "authentication_group": {
+                        "key": "authentication_group",
+                        "description": "Authentication Param",
+                        "details": "Authentication configurations parameters",
+                        "descriptionI18nKey": "server.vmanage.template.general.cedgeaaa.authenticationParam",
+                        "detailsI18nKey": "server.vmanage.template.general.cedgeaaa.authConfigParameters",
+                        "optionType": [
+                            {
+                                "value": "constant",
+                                "display": "Global",
+                                "iconClass": "language",
+                                "iconColor": "icon-global"
+                            },
+                            {
+                                "value": "variable",
+                                "display": "Device Specific",
+                                "iconClass": "router",
+                                "iconColor": "icon-variable"
+                            },
+                            {
+                                "value": "ignore",
+                                "display": "Default",
+                                "iconClass": "check_circle",
+                                "iconColor": "icon-default"
+                            }
+                        ],
+                        "originalDefaultOption": "ignore",
+                        "defaultOption": "ignore",
+                        "dataType": {
+                            "type": "boolean",
+                            "default": "false"
+                        },
+                        "dataPath": [
+                            "default"
+                        ],
+                        "vipObjectType": "object",
+                        "objectType": "object",
+                        "deleteFlag": false,
+                        "vipValue": "false",
+                        "vipType": "ignore",
+                        "vipVariableName": "dot1x_auth_group"
+                    }
+                }
+            }
+        },
+        "server-auth-order": {
+            "vipObjectType": "object",
+            "vipType": "constant",
+            "vipValue": "local"
+        },
+        "radius-dynamic-author": {
+            "radius-client": {
+                "vipObjectType": "tree",
+                "vipType": "ignore",
+                "vipValue": [],
+                "vipPrimaryKey": [
+                    "ip"
+                ]
+            },
+            "rda-server-key": {
+                "vipObjectType": "object",
+                "vipType": "ignore",
+                "vipVariableName": "radius_client_server_key",
+                "vipNeedsEncryption": "true"
+            },
+            "domain-stripping": {
+                "vipObjectType": "object",
+                "vipType": "ignore",
+                "vipValue": "no",
+                "vipVariableName": "radius_client_domain_stripping"
+            },
+            "auth-type": {
+                "vipObjectType": "object",
+                "vipType": "ignore",
+                "vipValue": "any",
+                "vipVariableName": "radius_client_auth_type"
+            },
+            "port": {
+                "vipObjectType": "object",
+                "vipType": "ignore",
+                "vipValue": 1700,
+                "vipVariableName": "radius_client_port"
+            }
+        },
+        "radius-trustsec": {
+            "cts-auth-list": {
+                "vipObjectType": "object",
+                "vipType": "ignore",
+                "vipVariableName": "trustsec_auth_list"
+            },
+            "radius-trustsec-group": {
+                "vipObjectType": "object",
+                "vipType": "ignore",
+                "vipValue": "_empty"
+            }
+        }
+    },
+    "factoryDefault": false
+}
