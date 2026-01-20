@@ -5,6 +5,9 @@ This module provides a single interface for both logging and user-facing output,
 ensuring consistent formatting across all automation scripts.
 """
 
+import sys
+import time
+
 from utils.logging import get_logger
 
 # Standard width for headers and separators
@@ -91,6 +94,34 @@ class Output:
         """Print a waiting/progress message and log as INFO."""
         print(f"{SYMBOLS['wait']} {message}")
         self.logger.info(message)
+
+    def spinner_wait(
+        self,
+        message: str,
+        seconds: int,
+        interval: float = 0.2,
+        log: bool = False,
+    ) -> None:
+        """Display a simple spinner/countdown without spamming logs."""
+        if log:
+            self.logger.info(message)
+        spinner = "|/-\\"
+        end = time.time() + max(0, seconds)
+        i = 0
+        while True:
+            remaining = int(max(0, end - time.time()))
+            line = (
+                f"\r{SYMBOLS['wait']} {message} "
+                f"({remaining:>2}s) {spinner[i % len(spinner)]}"
+            )
+            sys.stdout.write(line)
+            sys.stdout.flush()
+            if remaining <= 0:
+                break
+            time.sleep(interval)
+            i += 1
+        sys.stdout.write("\r" + f"{SYMBOLS['wait']} {message} (done)\n")
+        sys.stdout.flush()
 
     def detail(self, message: str) -> None:
         """Print an indented detail message and log as DEBUG."""

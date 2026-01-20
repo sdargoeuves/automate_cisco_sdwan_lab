@@ -42,7 +42,7 @@ The defaults assume:
 - Manager (vManage) at `10.194.58.14`
 - Validator (vBond) at `10.194.58.16`
 - Controller (vSmart) at `10.194.58.15`
-- Validator IP at `10.1.0.6` (interface facing the internet router)
+- Validator IP at `10.10.0.6` (interface facing the internet router)
 
 ## Usage
 

@@ -1,0 +1,33 @@
+
+
+router ospf 103
+
+int GigabitEthernet2
+ip address 10.1.0.26 255.255.255.252
+description "edge3 to d3"
+ip ospf network point-to-point
+ip ospf 103 area 0.0.0.103
+no shut
+
+int GigabitEthernet3
+ip address 10.1.0.29 255.255.255.252
+description "edge3 to pe3"
+ip ospf network point-to-point
+ip ospf 103 area 0.0.0.103
+no shut
+
+
+!interface Tunnel2
+!ip unnumbered GigabitEthernet3
+!tunnel source GigabitEthernet3
+!tunnel mode sdwan
+!exit
+!sdwan
+!interface GigabitEthernet3
+!tunnel-interface
+!encapsulation ipsec
+!allow-service all
+!color mpls
+!exit
+
+

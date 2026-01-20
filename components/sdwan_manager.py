@@ -1,7 +1,11 @@
 import time
 
 import sdwan_config as settings
-from utils.netmiko import connect_to_device, push_config_from_file, push_initial_config
+from utils.netmiko import (
+    bootstrap_initial_config,
+    ensure_connection,
+    push_config_from_file,
+)
 from utils.output import Output
 from utils.sdwan_sdk import SdkCallError, sdk_call_json, sdk_call_raw
 from utils.vshell import read_file_vshell, run_vshell_cmd
@@ -20,52 +24,46 @@ def run_manager_automation(
     out.log_only(
         f"Manager run start initial_config={initial_config} cert={cert} config_file={config_file}",
     )
-    out.header("Automation: MANAGER (vManage)", f"Target: {config.ip}:{config.port}")
+    out.header("Automation: MANAGER (vManage)", f"Target: {config.ip}")
 
     net_connect = None
 
     if initial_config:
         out.header("MANAGER: Initial Configuration")
-
-        out.step("Attempting to connect with default credentials...")
-        net_connect = connect_to_device(
-            "cisco_viptela",
-            config.ip,
-            config.username,
-            config.username,
-            exit_on_failure=False,
+        net_connect = bootstrap_initial_config(
+            device_label="Manager",
+            device_type="cisco_viptela",
+            host=config.ip,
+            username=config.username,
+            default_password=config.default_password,
+            updated_password=config.password,
+            initial_config=config.initial_config,
+            commit_command="commit",
         )
-
-        if net_connect:
-            if not config.initial_config.strip():
-                out.warning("Manager initial config is empty; skipping.")
-            else:
-                push_initial_config(net_connect, config.initial_config)
-
-            net_connect.disconnect()
-            net_connect = connect_to_device(
-                "cisco_viptela", config.ip, config.username, config.password
-            )
-        else:
-            out.warning("Default credentials failed, trying configured password...")
-            net_connect = connect_to_device(
-                "cisco_viptela", config.ip, config.username, config.password
-            )
-            out.success(
-                "Already configured with updated password - skipping initial config push"
-            )
 
     if config_file:
         if not net_connect:
-            net_connect = connect_to_device(
-                "cisco_viptela", config.ip, config.username, config.password
+            net_connect = ensure_connection(
+                net_connect,
+                "cisco_viptela",
+                config.ip,
+                config.username,
+                config.password,
             )
-        push_config_from_file(net_connect, config_file)
+        push_config_from_file(
+            net_connect,
+            config_file,
+            commit_command="commit",
+        )
 
     if cert:
         if not net_connect:
-            net_connect = connect_to_device(
-                "cisco_viptela", config.ip, config.username, config.password
+            net_connect = ensure_connection(
+                net_connect,
+                "cisco_viptela",
+                config.ip,
+                config.username,
+                config.password,
             )
 
         out.header("MANAGER: Certificate Configuration")
@@ -169,8 +167,7 @@ def run_certificate_automation(net_connect, config: settings.ManagerConfig):
                 data={"deviceIP": config.ip},
             )
         except SdkCallError as exc:
-            out.error(str(exc))
-            return False
+            out.warning(f"CSR attempt {csr_attempt}/{max_csr_attempts} failed: {exc}")
         else:
             out.success(
                 f"CSR generation successful (attempt {csr_attempt}/{max_csr_attempts})"
@@ -178,12 +175,11 @@ def run_certificate_automation(net_connect, config: settings.ManagerConfig):
             csr_generated = True
             break
 
-        # Failed
         if csr_attempt < max_csr_attempts:
-            out.wait(
-                f"CSR attempt {csr_attempt}/{max_csr_attempts} failed, retrying in 5s..."
+            out.spinner_wait(
+                f"Retrying CSR generation in 5s (attempt {csr_attempt + 1}/{max_csr_attempts})...",
+                5,
             )
-            time.sleep(5)
         else:
             out.error(f"CSR generation failed after {max_csr_attempts} attempts")
 
@@ -191,9 +187,11 @@ def run_certificate_automation(net_connect, config: settings.ManagerConfig):
         out.error("CSR generation failed; aborting.")
         return False
 
-    out.wait("Waiting for CSR file to be created...")
     csr_found = False
-    max_attempts = int(config.csr_file_timeout_minutes * 12)
+    poll_interval_seconds = 5
+    max_attempts = max(
+        1, int(settings.CSR_FILE_TIMEOUT_SECONDS / poll_interval_seconds)
+    )
     for attempt in range(max_attempts):
         try:
             check_result = run_vshell_cmd(
@@ -208,11 +206,14 @@ def run_certificate_automation(net_connect, config: settings.ManagerConfig):
             out.detail(f"Check attempt {attempt + 1} failed: {e}")
 
         if attempt < max_attempts - 1:
-            time.sleep(5)
+            out.spinner_wait(
+                "Waiting for CSR file to be created",
+                poll_interval_seconds,
+            )
 
     if not csr_found:
         out.error(
-            f"CSR file was not created after {config.csr_file_timeout_minutes} minute(s)"
+            f"CSR file was not created after {settings.CSR_FILE_TIMEOUT_SECONDS} second(s)"
         )
         return False
 
