@@ -65,8 +65,10 @@ def generate_payg_licenses(
         return []
 
     out.success(f"Generated {len(licenses)} PAYG license(s)")
-    out.wait(f"Waiting {wait_seconds}s for Manager to process license...")
-    time.sleep(wait_seconds)
+    out.spinner_wait(
+        f"Waiting {wait_seconds}s for Manager to process license...",
+        wait_seconds,
+    )
     return licenses
 
 
@@ -81,7 +83,7 @@ def _install_root_cert(net_connect) -> None:
     out.log_only(output)
     if "Password:" in output:
         out.warning("Unexpected password prompt during root cert install.")
-    out.success("Root certificate installed")
+    out.info("Root certificate installation in progress...")
 
 
 def _get_edge_cert_status(net_connect) -> str | None:
@@ -102,7 +104,7 @@ def _wait_for_edge_cert(
     poll_interval_seconds: int = settings.EDGE_CERT_POLL_INTERVAL_SECONDS,
     timeout_seconds: int = settings.EDGE_CERT_POLL_TIMEOUT_SECONDS,
 ) -> bool:
-    out.wait(
+    out.step(
         "Waiting for root CA chain to be installed "
         f"(poll {poll_interval_seconds}s, timeout {timeout_seconds}s)..."
     )
@@ -150,13 +152,16 @@ def _activate_edge_license(
                 out.warning(
                     f"PAYG activation failed; retrying in {retry_wait_seconds}s..."
                 )
-                time.sleep(retry_wait_seconds)
+                out.spinner_wait(
+                    "Waiting to retry PAYG activation",
+                    retry_wait_seconds,
+                )
                 out.step("Re-installing root certificate before retrying activation...")
                 _install_root_cert(net_connect)
-                out.wait(
-                    f"Waiting {settings.WAIT_BEFORE_ACTIVATING_EDGE}s before retrying activation..."
+                out.spinner_wait(
+                    f"Waiting {settings.WAIT_BEFORE_ACTIVATING_EDGE}s before retrying activation...",
+                    settings.WAIT_BEFORE_ACTIVATING_EDGE,
                 )
-                time.sleep(settings.WAIT_BEFORE_ACTIVATING_EDGE)
                 continue
             out.error("PAYG activation failed after retries.")
             return False

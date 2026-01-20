@@ -224,19 +224,19 @@ def main():
             initial_config=True,
             cert=True,
         )
-        out.wait(
-            f"Waiting {settings.WAIT_BEFORE_AUTOMATING_VALIDATOR}s before starting Validator automation..."
+        out.spinner_wait(
+            f"Waiting {settings.WAIT_BEFORE_AUTOMATING_VALIDATOR}s before starting Validator automation...",
+            settings.WAIT_BEFORE_AUTOMATING_VALIDATOR,
         )
-        time.sleep(settings.WAIT_BEFORE_AUTOMATING_VALIDATOR)
         run_validator_automation(
             settings.validator,
             initial_config=True,
             cert=True,
         )
-        out.wait(
-            f"Waiting {settings.WAIT_BEFORE_AUTOMATING_CONTROLLER}s before starting Controller automation..."
+        out.spinner_wait(
+            f"Waiting {settings.WAIT_BEFORE_AUTOMATING_CONTROLLER}s before starting Controller automation...",
+            settings.WAIT_BEFORE_AUTOMATING_CONTROLLER,
         )
-        time.sleep(settings.WAIT_BEFORE_AUTOMATING_CONTROLLER)
         run_controller_automation(
             settings.controller,
             initial_config=True,

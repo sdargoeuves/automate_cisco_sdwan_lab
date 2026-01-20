@@ -127,10 +127,10 @@ def run_certificate_automation(net_connect, config: settings.ControllerConfig) -
     out.success("Controller added to Manager successfully")
 
     # Wait for CSR to be generated on the controller
-    out.wait(
-        f"Waiting Controller to be added and CSR to be generated ({settings.WAIT_CSR_GENERATION} seconds)..."
+    out.spinner_wait(
+        f"Waiting Controller to be added and CSR to be generated ({settings.WAIT_CSR_GENERATION} seconds)...",
+        settings.WAIT_CSR_GENERATION,
     )
-    time.sleep(settings.WAIT_CSR_GENERATION)
 
     signed_cert_content = sign_csr(net_connect, config)
 

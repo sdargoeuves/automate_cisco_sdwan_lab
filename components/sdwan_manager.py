@@ -176,10 +176,10 @@ def run_certificate_automation(net_connect, config: settings.ManagerConfig):
             break
 
         if csr_attempt < max_csr_attempts:
-            out.wait(
-                f"Retrying CSR generation in 5s (attempt {csr_attempt + 1}/{max_csr_attempts})..."
+            out.spinner_wait(
+                f"Retrying CSR generation in 5s (attempt {csr_attempt + 1}/{max_csr_attempts})...",
+                5,
             )
-            time.sleep(5)
         else:
             out.error(f"CSR generation failed after {max_csr_attempts} attempts")
 
@@ -187,7 +187,6 @@ def run_certificate_automation(net_connect, config: settings.ManagerConfig):
         out.error("CSR generation failed; aborting.")
         return False
 
-    out.wait("Waiting for CSR file to be created...")
     csr_found = False
     poll_interval_seconds = 5
     max_attempts = max(
@@ -207,7 +206,10 @@ def run_certificate_automation(net_connect, config: settings.ManagerConfig):
             out.detail(f"Check attempt {attempt + 1} failed: {e}")
 
         if attempt < max_attempts - 1:
-            time.sleep(poll_interval_seconds)
+            out.spinner_wait(
+                "Waiting for CSR file to be created",
+                poll_interval_seconds,
+            )
 
     if not csr_found:
         out.error(

@@ -125,10 +125,10 @@ def run_certificate_automation(net_connect, config: settings.ValidatorConfig) ->
     out.success("Validator added to Manager successfully")
 
     # Wait for CSR to be generated on the validator
-    out.wait(
-        f"Waiting Validator to be added and CSR to be generated ({settings.WAIT_CSR_GENERATION} seconds)..."
+    out.spinner_wait(
+        f"Waiting Validator to be added and CSR to be generated ({settings.WAIT_CSR_GENERATION} seconds)...",
+        settings.WAIT_CSR_GENERATION,
     )
-    time.sleep(settings.WAIT_CSR_GENERATION)
 
     signed_cert_content = sign_csr(net_connect, config)
 

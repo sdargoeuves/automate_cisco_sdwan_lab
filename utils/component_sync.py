@@ -22,8 +22,7 @@ def reboot_out_of_sync_components(
     initial_wait: int = 30,
     retry_wait: int = 120,
 ) -> None:
-    out.wait("Waiting to ensure all components are synced...")
-    time.sleep(initial_wait)
+    out.spinner_wait("Waiting to ensure all components are synced...", initial_wait)
     show_controller_status(manager_config, out=out)
 
     out_of_sync = get_out_of_sync_controllers(manager_config, out=out)
@@ -35,8 +34,10 @@ def reboot_out_of_sync_components(
         "Detected out-of-sync components: "
         + ", ".join(_format_component_label(item) for item in out_of_sync)
     )
-    out.wait(f"Rechecking controller sync status in {retry_wait}s...")
-    time.sleep(retry_wait)
+    out.spinner_wait(
+        f"Rechecking controller sync status in {retry_wait}s...",
+        retry_wait,
+    )
     show_controller_status(manager_config, out=out)
 
     still_out_of_sync = get_out_of_sync_controllers(manager_config, out=out)
