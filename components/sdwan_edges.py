@@ -87,21 +87,45 @@ def _install_root_cert(net_connect) -> None:
 def _activate_edge_license(
     net_connect,
     license_entry: dict,
-) -> None:
+    retry_wait_seconds: int = 30,
+    max_attempts: int = 2,
+) -> bool:
     chassis = license_entry.get("chassis")
     token = license_entry.get("token")
     if not chassis or not token:
         raise ValueError("Missing chassis or token for PAYG activation")
 
-    out.step(f"Activating PAYG license for chassis {chassis}...")
-    output = net_connect.send_command_timing(
-        "request platform software sdwan vedge_cloud activate "
-        f"chassis-number {chassis} token {token}",
-        strip_prompt=False,
-        strip_command=False,
-    )
-    out.log_only(output)
-    out.success("PAYG license activated")
+    for attempt in range(1, max_attempts + 1):
+        out.step(
+            f"Activating PAYG license for chassis {chassis} "
+            f"(attempt {attempt}/{max_attempts})..."
+        )
+        output = net_connect.send_command_timing(
+            "request platform software sdwan vedge_cloud activate "
+            f"chassis-number {chassis} token {token}",
+            strip_prompt=False,
+            strip_command=False,
+        )
+        out.log_only(output)
+        lower = output.lower()
+        if "failed to attach" in lower or "internal error" in lower:
+            if attempt < max_attempts:
+                out.warning(
+                    f"PAYG activation failed; retrying in {retry_wait_seconds}s..."
+                )
+                time.sleep(retry_wait_seconds)
+                out.step("Re-installing root certificate before retrying activation...")
+                _install_root_cert(net_connect)
+                out.wait(
+                    f"Waiting {settings.WAIT_BEFORE_ACTIVATING_EDGE}s before retrying activation..."
+                )
+                time.sleep(settings.WAIT_BEFORE_ACTIVATING_EDGE)
+                continue
+            out.error("PAYG activation failed after retries.")
+            return False
+        out.success("PAYG license activated")
+        return True
+    return False
 
 
 def run_edge_automation(
@@ -192,7 +216,9 @@ def run_edge_automation(
             f"Waiting {settings.WAIT_BEFORE_ACTIVATING_EDGE}s before activating license..."
         )
         time.sleep(settings.WAIT_BEFORE_ACTIVATING_EDGE)
-        _activate_edge_license(net_connect, license_entry)
+        if not _activate_edge_license(net_connect, license_entry):
+            net_connect.disconnect()
+            raise SystemExit(1)
 
     net_connect.disconnect()
     out.success("Disconnected from Edge")
