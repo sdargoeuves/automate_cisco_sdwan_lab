@@ -49,12 +49,24 @@ def setup_logging(verbose: bool) -> None:
     root_logger.addHandler(debug_handler)
     root_logger.addHandler(console_handler)
 
+    logging.getLogger("netmiko").addFilter(_NetmikoEmptyReadFilter())
     logging.getLogger("paramiko").setLevel(logging.WARNING)
     logging.getLogger("urllib3").setLevel(logging.WARNING)
 
 
 def get_logger(name: str) -> logging.Logger:
     return logging.getLogger(name)
+
+
+class _NetmikoEmptyReadFilter(logging.Filter):
+    def filter(self, record: logging.LogRecord) -> bool:
+        if not record.name.startswith("netmiko"):
+            return True
+        message = record.getMessage()
+        if "read_channel:" not in message:
+            return True
+        _, remainder = message.split("read_channel:", 1)
+        return bool(remainder.strip())
 
 
 def _rotator(source: str, dest: str) -> None:

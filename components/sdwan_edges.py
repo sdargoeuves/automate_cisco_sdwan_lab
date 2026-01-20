@@ -84,6 +84,43 @@ def _install_root_cert(net_connect) -> None:
     out.success("Root certificate installed")
 
 
+def _get_edge_cert_status(net_connect) -> str | None:
+    output = net_connect.send_command_timing(
+        "show sdwan control local-properties | i root-ca-chain-status",
+        strip_prompt=False,
+        strip_command=False,
+    )
+    out.log_only(output)
+    match = re.search(r"root-ca-chain-status\s+(\S+)", output, re.IGNORECASE)
+    if not match:
+        return None
+    return match.group(1).strip().lower()
+
+
+def _wait_for_edge_cert(
+    net_connect,
+    poll_interval_seconds: int = settings.EDGE_CERT_POLL_INTERVAL_SECONDS,
+    timeout_seconds: int = settings.EDGE_CERT_POLL_TIMEOUT_SECONDS,
+) -> bool:
+    out.wait(
+        "Waiting for root CA chain to be installed "
+        f"(poll {poll_interval_seconds}s, timeout {timeout_seconds}s)..."
+    )
+    start = time.time()
+    while True:
+        status = _get_edge_cert_status(net_connect)
+        if status == "installed":
+            out.success("Root CA chain status is Installed.")
+            return True
+        if time.time() - start >= timeout_seconds:
+            out.warning("Root CA chain did not reach Installed before timeout.")
+            return False
+        out.spinner_wait(
+            "Next root CA chain check",
+            poll_interval_seconds,
+        )
+
+
 def _activate_edge_license(
     net_connect,
     license_entry: dict,
@@ -212,10 +249,13 @@ def run_edge_automation(
             net_connect.disconnect()
             raise SystemExit(1)
         _install_root_cert(net_connect)
-        out.wait(
-            f"Waiting {settings.WAIT_BEFORE_ACTIVATING_EDGE}s before activating license..."
-        )
-        time.sleep(settings.WAIT_BEFORE_ACTIVATING_EDGE)
+        if not _wait_for_edge_cert(net_connect):
+            out.step("Re-installing root certificate after timeout...")
+            _install_root_cert(net_connect)
+            if not _wait_for_edge_cert(net_connect):
+                out.error("Device certificate still not installed; aborting activation.")
+                net_connect.disconnect()
+                raise SystemExit(1)
         if not _activate_edge_license(net_connect, license_entry):
             net_connect.disconnect()
             raise SystemExit(1)
