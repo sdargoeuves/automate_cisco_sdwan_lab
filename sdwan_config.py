@@ -161,9 +161,11 @@ allow-service all
 
 EDGE1_INITIAL_CONFIG = f"""
 username admin password {UPDATED_PASSWORD}
+no ip domain lookup
 ip route 0.0.0.0 0.0.0.0 10.10.0.14
 int GigabitEthernet4
 ip address 10.10.0.13 255.255.255.252
+description "edge1 to inet0"
 no shut
 exit
 commit
@@ -193,9 +195,11 @@ commit
 
 EDGE2_INITIAL_CONFIG = f"""
 username admin password {UPDATED_PASSWORD}
+no ip domain lookup
 ip route 0.0.0.0 0.0.0.0 10.10.0.18
 int GigabitEthernet4
 ip address 10.10.0.17 255.255.255.252
+description "edge2 to inet0"
 no shut
 exit
 commit
@@ -225,9 +229,11 @@ commit
 
 EDGE3_INITIAL_CONFIG = f"""
 username admin password {UPDATED_PASSWORD}
+no ip domain lookup
 ip route 0.0.0.0 0.0.0.0 10.10.0.22
 int GigabitEthernet4
 ip address 10.10.0.21 255.255.255.252
+description "edge3 to inet0"
 no shut
 exit
 commit
