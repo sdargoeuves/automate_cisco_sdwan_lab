@@ -1,0 +1,252 @@
+system
+   ztp-status            in-progress
+   device-model          vedge-C8000V
+   system-ip             10.194.58.17
+   overlay-id            1
+   site-id               101
+   no transport-gateway enable
+   port-offset           0
+   control-session-pps   300
+   admin-tech-on-failure
+   sp-organization-name  ipf-netlab
+   organization-name     ipf-netlab
+   port-hop
+   track-transport
+   track-default-gateway
+   console-baud-rate     9600
+   no on-demand enable
+   on-demand idle-timeout 10
+   vbond 10.10.0.6 port 12346
+  !
+  bfd color lte
+   hello-interval 1000
+   no pmtu-discovery
+   multiplier     1
+  !
+  bfd default-dscp 48
+  bfd app-route multiplier 2
+  bfd app-route poll-interval 123400
+  security
+   ipsec
+    rekey               86400
+    replay-window       512
+    authentication-type ah-sha1-hmac sha1-hmac
+    integrity-type      ip-udp-esp esp
+   !
+  !
+  sslproxy
+   no enable
+   rsa-key-modulus      2048
+   certificate-lifetime 730
+   eckey-type           P256
+   ca-tp-label          PROXY-SIGNING-CA
+   settings expired-certificate  drop
+   settings untrusted-certificate drop
+   settings unknown-status       drop
+   settings certificate-revocation-check none
+   settings unsupported-protocol-versions drop
+   settings unsupported-cipher-suites drop
+   settings failure-mode         close
+   settings minimum-tls-ver      TLSv1
+   dual-side optimization enable
+  !
+  sdwan
+   interface GigabitEthernet3
+    tunnel-interface
+     encapsulation ipsec weight 1
+     no border
+     color mpls
+     no last-resort-circuit
+     no low-bandwidth-link
+     no vbond-as-stun-server
+     vmanage-connection-preference 5
+     port-hop
+     carrier                       default
+     nat-refresh-interval          5
+     hello-interval                1000
+     hello-tolerance               12
+     allow-service all
+     no allow-service bgp
+     allow-service dhcp
+     allow-service dns
+     allow-service icmp
+     no allow-service sshd
+     no allow-service netconf
+     no allow-service ntp
+     no allow-service ospf
+     no allow-service stun
+     allow-service https
+     no allow-service snmp
+     no allow-service bfd
+    exit
+   exit
+   interface GigabitEthernet4
+    tunnel-interface
+     encapsulation ipsec weight 1
+     no border
+     color public-internet
+     no last-resort-circuit
+     no low-bandwidth-link
+     no vbond-as-stun-server
+     vmanage-connection-preference 5
+     port-hop
+     carrier                       default
+     nat-refresh-interval          5
+     hello-interval                1000
+     hello-tolerance               12
+     allow-service all
+     no allow-service bgp
+     allow-service dhcp
+     allow-service dns
+     allow-service icmp
+     no allow-service sshd
+     no allow-service netconf
+     no allow-service ntp
+     no allow-service ospf
+     no allow-service stun
+     allow-service https
+     no allow-service snmp
+     no allow-service bfd
+    exit
+   exit
+   appqoe
+    no tcpopt enable
+    no dreopt enable
+    no httpopt enable
+   !
+   omp
+    no shutdown
+    send-path-limit  4
+    ecmp-limit       4
+    graceful-restart
+    no as-dot-notation
+    timers
+     holdtime               60
+     advertisement-interval 1
+     graceful-restart-timer 43200
+     eor-timer              300
+    exit
+    address-family ipv4
+     advertise bgp
+     advertise connected
+     advertise static
+    !
+    address-family ipv6
+     advertise bgp
+     advertise connected
+     advertise static
+    !
+   !
+  !
+  banner login Un authorised Logins tracked
+  banner motd Restricted Use
+  service tcp-keepalives-in
+  service tcp-keepalives-out
+  no service tcp-small-servers
+  no service udp-small-servers
+  hostname edge1
+  username admin privilege 15 secret 9 $9$3V6L3V6L2VUI2k$ysPnXOdg8RLj9KgMdmfHdSHkdaMmiHzGaUpcqH6pfTo
+  vrf definition Mgmt-intf
+   description Management
+   rd          1:512
+   address-family ipv4
+    route-target export 1:512
+    route-target import 1:512
+    exit-address-family
+   !
+   address-family ipv6
+    exit-address-family
+   !
+  !
+  ip arp proxy disable
+  no ip finger
+  no ip rcmd rcp-enable
+  no ip rcmd rsh-enable
+  no ip domain lookup
+  no ip dhcp use class
+  ip forward-protocol nd
+  no ip forward-protocol udp
+  no ip ftp passive
+  ip route 0.0.0.0 0.0.0.0 10.1.0.6
+  ip route 0.0.0.0 0.0.0.0 10.10.0.14
+  ip bootp server
+  no ip source-route
+  no ip ssh bulk-mode
+  ip tcp RST-count 10 RST-window 5000
+  no ip http server
+  no ip http secure-server
+  ip http client source-interface GigabitEthernet2
+  no ip http ctc authentication
+  ip nat settings central-policy
+  interface GigabitEthernet3
+   no shutdown
+   arp timeout 1200
+   ip address 10.1.0.5 255.255.255.252
+   no ip redirects
+   ip mtu    1500
+   load-interval 30
+   mtu           1500
+   negotiation auto
+  exit
+  interface GigabitEthernet4
+   no shutdown
+   arp timeout 1200
+   ip address 10.10.0.13 255.255.255.252
+   no ip redirects
+   ip mtu    1500
+   load-interval 30
+   mtu           1500
+   negotiation auto
+  exit
+  interface Tunnel3
+   no shutdown
+   ip unnumbered GigabitEthernet3
+   no ip redirects
+   ipv6 unnumbered GigabitEthernet3
+   no ipv6 redirects
+   tunnel source GigabitEthernet3
+   tunnel mode sdwan
+  exit
+  interface Tunnel4
+   no shutdown
+   ip unnumbered GigabitEthernet4
+   no ip redirects
+   ipv6 unnumbered GigabitEthernet4
+   no ipv6 redirects
+   tunnel source GigabitEthernet4
+   tunnel mode sdwan
+  exit
+  clock timezone UTC 0 0
+  logging persistent size 104857600 filesize 10485760
+  no logging monitor
+  logging buffered 512000
+  logging console
+  no logging queue-limit
+  aaa authentication login default local
+  aaa authorization exec default local
+  aaa server radius dynamic-author
+  !
+  radius-server cache expiry 24
+  no crypto ikev2 diagnose error
+  no crypto isakmp diagnose error
+  no network-clock revertive
+  snmp-server ifindex persist
+  fhrp version vrrp v2
+  line con 0
+   speed    9600
+   stopbits 1
+  !
+  line vty 0 4
+   transport input ssh
+  !
+  line vty 5 80
+   transport input ssh
+  !
+  no process cpu extended history
+  no ignition sense
+  no ignition enable
+  lldp run
+  nat64 translation timeout tcp 3600
+  nat64 translation timeout udp 300
+ !
+!
