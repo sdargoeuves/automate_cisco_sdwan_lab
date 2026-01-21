@@ -9,7 +9,7 @@ import re
 import time
 from typing import Optional
 
-import sdwan_config as settings
+from utils import sdwan_config as settings
 from utils.netmiko import (
     bootstrap_initial_config,
     connect_to_device,
@@ -184,7 +184,7 @@ def run_edge_automation(
         f"Edge run start initial_config={initial_config} cert={cert} "
         f"config_file={config_file} label={label}",
     )
-    out.header(f"Automation: EDGE - {label}", f"Target: {config.ip}")
+    out.header(f"Automation: EDGE - {label}", f"Target: {config.mgmt_ip}")
 
     net_connect = None
 
@@ -193,7 +193,7 @@ def run_edge_automation(
         net_connect = bootstrap_initial_config(
             device_label=label,
             device_type=device_type,
-            host=config.ip,
+            host=config.mgmt_ip,
             username=config.username,
             default_password=config.default_password,
             updated_password=config.password,
@@ -205,7 +205,7 @@ def run_edge_automation(
     else:
         net_connect = connect_to_device(
             device_type,
-            config.ip,
+            config.mgmt_ip,
             config.username,
             config.password,
         )
@@ -215,7 +215,7 @@ def run_edge_automation(
         net_connect = ensure_connection(
             net_connect,
             device_type,
-            config.ip,
+            config.mgmt_ip,
             config.username,
             config.password,
         )
@@ -232,7 +232,7 @@ def run_edge_automation(
         net_connect = ensure_connection(
             net_connect,
             device_type,
-            config.ip,
+            config.mgmt_ip,
             config.username,
             config.password,
         )

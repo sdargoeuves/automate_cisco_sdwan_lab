@@ -26,7 +26,7 @@ import sys
 import time
 from pathlib import Path
 
-import sdwan_config as settings
+from utils import sdwan_config as settings
 from components.sdwan_controller import run_controller_automation
 from components.sdwan_edges import run_edges_automation
 from components.sdwan_manager import run_manager_automation
@@ -249,7 +249,7 @@ def main():
             if isinstance(value, settings.EdgeConfig)
         ]
         if not edge_configs:
-            out.warning("No edge configs found in sdwan_config.py.")
+            out.warning("No edge configs found in utils/sdwan_config.py.")
         else:
             run_edges_automation(
                 edge_configs,
@@ -313,7 +313,7 @@ def main():
                 if name.startswith("edge") and isinstance(value, settings.EdgeConfig)
             ]
             if not edge_configs:
-                out.error("No edge configs found in sdwan_config.py.")
+                out.error("No edge configs found in utils/sdwan_config.py.")
                 sys.exit(1)
         else:
             edge_configs = []

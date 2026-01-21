@@ -1,6 +1,6 @@
 import time
 
-import sdwan_config as settings
+from utils import sdwan_config as settings
 from utils.manager_api_status import (
     get_out_of_sync_controllers,
     show_controller_status,

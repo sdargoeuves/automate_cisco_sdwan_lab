@@ -18,7 +18,7 @@ tasks and the Sastre SDK for Manager API interactions.
 - Python 3.10+
 - Network reachability to Manager/Validator/Controller management IPs
 - Manager API reachable on HTTPS (default port 443)
-- Python deps: `netmiko`, `requests`, `cisco-sdwan`
+- Python deps: `netmiko`, `requests`, `cisco-sdwan`, `PyYAML`
 
 Example install:
 
@@ -30,11 +30,10 @@ pip install -r requirements.txt
 
 ## Configuration
 
-Edit `sdwan_config.py` to match your lab:
+Edit `sdwan_variables.yml` to match your lab:
 
-- `ORG`, `USERNAME`, `PASSWORD`, `PORT`
-- Device IPs in `manager`, `validator`, `controller`
-- Initial CLI snippets in `*_INITIAL_CONFIG`
+- `shared`, `timing`, and `network` values
+- Device IPs and interface settings under `devices`
 - Certificate file names and CSR defaults
 
 The defaults assume:
@@ -89,6 +88,7 @@ Add `-v` to any command for verbose console output.
 ## Project Layout
 
 - `sdwan_automation.py`: CLI entry point
-- `sdwan_config.py`: site-specific configuration and initial configs
+- `utils/sdwan_config.py`: config assembly (loads `sdwan_variables.yml`)
+- `sdwan_variables.yml`: site-specific variables
 - `components/`: automation flows per component
 - `utils/`: SDK, Netmiko, logging, and console helpers

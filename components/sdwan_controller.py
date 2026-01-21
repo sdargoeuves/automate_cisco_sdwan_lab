@@ -1,7 +1,7 @@
 import time
 from typing import Optional
 
-import sdwan_config as settings
+from utils import sdwan_config as settings
 from utils.netmiko import (
     bootstrap_initial_config,
     ensure_connection,

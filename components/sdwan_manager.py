@@ -1,6 +1,6 @@
 import time
 
-import sdwan_config as settings
+from utils import sdwan_config as settings
 from utils.netmiko import (
     bootstrap_initial_config,
     ensure_connection,
@@ -24,7 +24,7 @@ def run_manager_automation(
     out.log_only(
         f"Manager run start initial_config={initial_config} cert={cert} config_file={config_file}",
     )
-    out.header("Automation: MANAGER (vManage)", f"Target: {config.ip}")
+    out.header("Automation: MANAGER (vManage)", f"Target: {config.mgmt_ip}")
 
     net_connect = None
 
@@ -33,7 +33,7 @@ def run_manager_automation(
         net_connect = bootstrap_initial_config(
             device_label="Manager",
             device_type="cisco_viptela",
-            host=config.ip,
+            host=config.mgmt_ip,
             username=config.username,
             default_password=config.default_password,
             updated_password=config.password,
@@ -46,7 +46,7 @@ def run_manager_automation(
             net_connect = ensure_connection(
                 net_connect,
                 "cisco_viptela",
-                config.ip,
+                config.mgmt_ip,
                 config.username,
                 config.password,
             )
@@ -61,7 +61,7 @@ def run_manager_automation(
             net_connect = ensure_connection(
                 net_connect,
                 "cisco_viptela",
-                config.ip,
+                config.mgmt_ip,
                 config.username,
                 config.password,
             )
@@ -164,7 +164,7 @@ def run_certificate_automation(net_connect, config: settings.ManagerConfig):
                 config,
                 "POST",
                 "/dataservice/certificate/generate/csr",
-                data={"deviceIP": config.ip},
+                data={"deviceIP": config.mgmt_ip},
             )
         except SdkCallError as exc:
             out.warning(f"CSR attempt {csr_attempt}/{max_csr_attempts} failed: {exc}")

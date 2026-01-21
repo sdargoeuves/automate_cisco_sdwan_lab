@@ -1,0 +1,113 @@
+shared:
+  org: ipf-netlab
+  username: admin
+  default_password: admin
+  updated_password: admin@123
+  port: "443"
+
+timing:
+  wait_before_automating_controller: 120
+  wait_before_automating_validator: 60
+  wait_csr_generation: 30
+  wait_before_activating_edge: 60
+  wait_after_generating_payg_license: 30
+  edge_cert_poll_interval_seconds: 10
+  edge_cert_poll_timeout_seconds: 180
+  netmiko_increased_read_timeout: 30
+  csr_file_timeout_seconds: 60
+
+certificates:
+  rsa_key: SDWAN.key
+  root_cert: SDWAN.pem
+  signed_cert: NewCertificate.crt
+
+network:
+  validator_ip: 10.10.0.6
+  controller_ip: 10.10.0.10
+
+devices:
+  manager:
+    mgmt_ip: 10.194.58.14
+    system_ip: 10.194.58.14
+    site_id: 255
+    route_gw: 10.10.0.1
+    interface_name: eth1
+    interface_ip: 10.10.0.2
+    interface_prefix: 30
+    interface_desc: sdwan-manager to inet0
+    country: FI
+    state: Finland
+    city: Helsinki
+    csr_file: vmanage_csr
+    api_ready_timeout_minutes: 15
+
+  validator:
+    mgmt_ip: 10.194.58.16
+    system_ip: 10.194.58.16
+    site_id: 255
+    route_gw: 10.10.0.5
+    interface_name: ge0/0
+    interface_ip: 10.10.0.6
+    interface_prefix: 30
+    interface_desc: sdwan-validator to inet0
+    csr_file: vbond_csr
+
+  controller:
+    mgmt_ip: 10.194.58.15
+    system_ip: 10.194.58.15
+    site_id: 255
+    route_gw: 10.10.0.9
+    interface_name: eth1
+    interface_ip: 10.10.0.10
+    interface_prefix: 30
+    interface_desc: sdwan-controller to inet0
+    csr_file: vsmart_csr
+
+  edges:
+    edge1:
+      mgmt_ip: 10.194.58.17
+      system_ip: 10.194.58.17
+      site_id: 101
+      inet_ip: 10.10.0.13
+      inet_mask: 255.255.255.252
+      inet_gw: 10.10.0.14
+      inet_desc: edge1 to inet0
+      inet_interface: GigabitEthernet4
+      mpls_ip: 10.1.0.5
+      mpls_mask: 255.255.255.252
+      mpls_gw: 10.1.0.6
+      mpls_desc: edge1 to pe1
+      mpls_interface: GigabitEthernet3
+      csr_file: vsmart_csr
+
+    edge2:
+      mgmt_ip: 10.194.58.18
+      system_ip: 10.194.58.18
+      site_id: 102
+      inet_ip: 10.10.0.17
+      inet_mask: 255.255.255.252
+      inet_gw: 10.10.0.18
+      inet_desc: edge2 to inet0
+      inet_interface: GigabitEthernet4
+      mpls_ip: 10.1.0.17
+      mpls_mask: 255.255.255.252
+      mpls_gw: 10.1.0.18
+      mpls_desc: edge2 to pe2
+      mpls_interface: GigabitEthernet3
+      csr_file: vsmart_csr
+
+    edge3:
+      mgmt_ip: 10.194.58.19
+      system_ip: 10.194.58.19
+      site_id: 103
+      inet_ip: 10.10.0.21
+      inet_mask: 255.255.255.252
+      inet_gw: 10.10.0.22
+      inet_desc: edge3 to inet0
+      inet_interface: GigabitEthernet4
+      mpls_ip: 10.1.0.29
+      mpls_mask: 255.255.255.252
+      mpls_gw: 10.1.0.30
+      mpls_desc: edge3 to pe3
+      mpls_interface: GigabitEthernet3
+      csr_file: vsmart_csr

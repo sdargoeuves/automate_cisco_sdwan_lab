@@ -1,4 +1,4 @@
-import sdwan_config as settings
+from utils import sdwan_config as settings
 from utils.netmiko import connect_to_device
 from utils.output import Output
 from utils.sdwan_sdk import SdkCallError, sdk_call_raw

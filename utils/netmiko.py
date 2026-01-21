@@ -4,7 +4,7 @@ from pathlib import Path
 
 from netmiko import ConnectHandler
 
-import sdwan_config as settings
+from utils import sdwan_config as settings
 from utils.output import Output
 
 out = Output(__name__)
