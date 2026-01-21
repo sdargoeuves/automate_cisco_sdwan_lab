@@ -19,11 +19,11 @@ class SdkCallError(RuntimeError):
 
 
 def _cache_key(manager_config) -> str:
-    return f"{manager_config.username}@{manager_config.ip}:{manager_config.port}"
+    return f"{manager_config.username}@{manager_config.mgmt_ip}:{manager_config.port}"
 
 
 def _create_client_with_retry(manager_config) -> Rest | None:
-    base_url = f"https://{manager_config.ip}:{manager_config.port}"
+    base_url = f"https://{manager_config.mgmt_ip}:{manager_config.port}"
     max_wait = getattr(manager_config, "api_ready_timeout_minutes", 15)
     deadline = time.monotonic() + (max_wait * 60)
     attempt = 0
@@ -32,7 +32,7 @@ def _create_client_with_retry(manager_config) -> Rest | None:
         attempt += 1
         try:
             out.log_only(
-                f"SDK login attempt {attempt} to {manager_config.ip}:{manager_config.port}",
+                f"SDK login attempt {attempt} to {manager_config.mgmt_ip}:{manager_config.port}",
                 level="debug",
             )
             return Rest(
@@ -187,7 +187,7 @@ def run_sdwan_cli(settings, sdk_args: list[str]) -> int:
 
     base_args = [
         "-a",
-        settings.manager.ip,
+        settings.manager.mgmt_ip,
         "-u",
         settings.manager.username,
         "-p",
