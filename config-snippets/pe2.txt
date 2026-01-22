@@ -1,0 +1,8 @@
+router bgp 65100
+   neighbor 10.1.0.17 remote-as 65102
+   neighbor 10.1.0.17 description edge1
+   !
+   address-family ipv4
+      neighbor 10.1.0.17 activate
+      neighbor 10.1.0.17 next-hop-self
+      network 10.1.0.16/30

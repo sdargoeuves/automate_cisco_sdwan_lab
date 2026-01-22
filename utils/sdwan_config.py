@@ -272,7 +272,7 @@ exit
 
 !!! this default route will currently break the automation
 !ip route 0.0.0.0 0.0.0.0 {mpls_gw}
-!!! DO NOT USE YET
+!!! DO NOT USE
 int {mpls_interface}
 no shutdown
 ip address {mpls_ip} {mpls_mask}
@@ -312,7 +312,8 @@ no shutdown
 tunnel-interface
 encapsulation ipsec
 allow-service all
-color mpls
+color mpls restrict
+max-control-connections 0
 exit
 commit
 """
