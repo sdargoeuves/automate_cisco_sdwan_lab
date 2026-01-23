@@ -32,3 +32,39 @@ router bgp 65103
 !
 
 
+vrf definition 100
+    rd 1:100
+    address-family ipv4
+    route-target export 1:100
+    route-target import 1:100
+    exit-address-family
+    !
+    address-family ipv6
+    exit-address-family
+    !
+vrf definition 200
+    rd 1:200
+    address-family ipv4
+    route-target export 1:200
+    route-target import 1:200
+    exit-address-family
+    !
+    address-family ipv6
+    exit-address-family
+    !
+
+interface Loopback100
+    no shutdown
+    arp timeout 1200
+    vrf forwarding 100
+    ip address 183.100.1.3 255.255.255.255
+    no ip redirects
+
+interface Loopback200
+    no shutdown
+    arp timeout 1200
+    vrf forwarding 200
+    ip address 183.200.1.3 255.255.255.255
+    no ip redirects
+
+

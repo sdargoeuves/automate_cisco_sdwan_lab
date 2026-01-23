@@ -52,6 +52,12 @@ NETMIKO_INCREASED_READ_TIMEOUT: int = int(
     _TIMING.get("netmiko_increased_read_timeout", 30)
 )
 CSR_FILE_TIMEOUT_SECONDS: int = int(_TIMING.get("csr_file_timeout_seconds", 60))
+NETMIKO_CONFIG_RETRY_ATTEMPTS: int = int(
+    _TIMING.get("netmiko_config_retry_attempts", 2)
+)
+NETMIKO_CONFIG_RETRY_WAIT_SECONDS: int = int(
+    _TIMING.get("netmiko_config_retry_wait_seconds", 10)
+)
 
 # Certificate files (same across all devices)
 RSA_KEY: str = _CERTS.get("rsa_key", "SDWAN.key")
@@ -146,7 +152,6 @@ class EdgeConfig:
     rsa_key: str = RSA_KEY
     root_cert: str = ROOT_CERT
     signed_cert: str = SIGNED_CERT
-    csr_file: str = "vsmart_csr"
     initial_config: str = ""
 
 
@@ -257,6 +262,10 @@ def build_edge_initial_config(
     mpls_gw: str,
     mpls_desc: str,
     mpls_interface: str,
+    loopback100_ip: str,
+    loopback100_mask: str,
+    loopback200_ip: str,
+    loopback200_mask: str,
 ) -> str:
     return f"""
 no ip domain lookup
@@ -265,55 +274,94 @@ username admin password {UPDATED_PASSWORD}
 
 ip route 0.0.0.0 0.0.0.0 {inet_gw}
 int {inet_interface}
-no shutdown
-ip address {inet_ip} {inet_mask}
-description "{inet_desc}"
+ no shutdown
+ ip address {inet_ip} {inet_mask}
+ description "{inet_desc}"
 exit
-
-!!! this default route will currently break the automation
-!ip route 0.0.0.0 0.0.0.0 {mpls_gw}
-!!! DO NOT USE
 int {mpls_interface}
-no shutdown
-ip address {mpls_ip} {mpls_mask}
-description "{mpls_desc}"
+ no shutdown
+ ip address {mpls_ip} {mpls_mask}
+ description "{mpls_desc}"
 exit
 
 system
-system-ip {system_ip}
-site-id {site_id}
-organization-name {ORG}
-vbond {VALIDATOR_IP}
+ system-ip {system_ip}
+ site-id {site_id}
+ organization-name {ORG}
+ vbond {VALIDATOR_IP}
 exit
 
 interface Tunnel1
-no shutdown
-ip unnumbered {inet_interface}
-tunnel source {inet_interface}
-tunnel mode sdwan
-exit
+ no shutdown
+ ip unnumbered {inet_interface}
+ tunnel source {inet_interface}
+ tunnel mode sdwan
+
 interface Tunnel2
-ip unnumbered {mpls_interface}
-tunnel source {mpls_interface}
-tunnel mode sdwan
+ ip unnumbered {mpls_interface}
+ tunnel source {mpls_interface}
+ tunnel mode sdwan
 exit
+
+
+
+vrf definition 100
+ rd 1:100
+ address-family ipv4
+  route-target export 1:100
+  route-target import 1:100
+ exit-address-family
+!
+ address-family ipv6
+ exit-address-family
+!
+vrf definition 200
+ rd 1:200
+ address-family ipv4
+  route-target export 1:200
+  route-target import 1:200
+ exit-address-family
+ !
+ address-family ipv6
+ exit-address-family
+!
+interface Loopback100
+ no shutdown
+ arp timeout 1200
+ vrf forwarding 100
+ ip address {loopback100_ip} {loopback100_mask}
+ no ip redirects
+
+interface Loopback200
+ no shutdown
+ arp timeout 1200
+ vrf forwarding 200
+ ip address {loopback200_ip} {loopback200_mask}
+ no ip redirects
+
+
 
 sdwan
 interface {inet_interface}
-no shutdown
-tunnel-interface
-encapsulation ipsec
-allow-service all
-color public-internet
-exit
-commit
+ tunnel-interface
+  encapsulation ipsec
+  allow-service all
+  color public-internet
+ exit
 interface {mpls_interface}
-no shutdown
-tunnel-interface
-encapsulation ipsec
-allow-service all
-color mpls restrict
-max-control-connections 0
+ tunnel-interface
+  encapsulation ipsec
+  allow-service all
+  color mpls restrict
+  max-control-connections 0
+ exit
+exit
+omp
+ address-family ipv4
+  advertise bgp
+  advertise connected
+  !advertise ospf
+  advertise static
 exit
 commit
 """
@@ -378,6 +426,10 @@ EDGE1_INITIAL_CONFIG = build_edge_initial_config(
     mpls_gw=_require_value(EDGE1_DEVICE, "mpls_gw", "edge1"),
     mpls_desc=_require_value(EDGE1_DEVICE, "mpls_desc", "edge1"),
     mpls_interface=_require_value(EDGE1_DEVICE, "mpls_interface", "edge1"),
+    loopback100_ip=_require_value(EDGE1_DEVICE, "loopback100_ip", "edge1"),
+    loopback100_mask=_require_value(EDGE1_DEVICE, "loopback100_mask", "edge1"),
+    loopback200_ip=_require_value(EDGE1_DEVICE, "loopback200_ip", "edge1"),
+    loopback200_mask=_require_value(EDGE1_DEVICE, "loopback200_mask", "edge1"),
 )
 
 EDGE2_INITIAL_CONFIG = build_edge_initial_config(
@@ -394,6 +446,10 @@ EDGE2_INITIAL_CONFIG = build_edge_initial_config(
     mpls_gw=_require_value(EDGE2_DEVICE, "mpls_gw", "edge2"),
     mpls_desc=_require_value(EDGE2_DEVICE, "mpls_desc", "edge2"),
     mpls_interface=_require_value(EDGE2_DEVICE, "mpls_interface", "edge2"),
+    loopback100_ip=_require_value(EDGE2_DEVICE, "loopback100_ip", "edge2"),
+    loopback100_mask=_require_value(EDGE2_DEVICE, "loopback100_mask", "edge2"),
+    loopback200_ip=_require_value(EDGE2_DEVICE, "loopback200_ip", "edge2"),
+    loopback200_mask=_require_value(EDGE2_DEVICE, "loopback200_mask", "edge2"),
 )
 
 EDGE3_INITIAL_CONFIG = build_edge_initial_config(
@@ -410,6 +466,10 @@ EDGE3_INITIAL_CONFIG = build_edge_initial_config(
     mpls_gw=_require_value(EDGE3_DEVICE, "mpls_gw", "edge3"),
     mpls_desc=_require_value(EDGE3_DEVICE, "mpls_desc", "edge3"),
     mpls_interface=_require_value(EDGE3_DEVICE, "mpls_interface", "edge3"),
+    loopback100_ip=_require_value(EDGE3_DEVICE, "loopback100_ip", "edge3"),
+    loopback100_mask=_require_value(EDGE3_DEVICE, "loopback100_mask", "edge3"),
+    loopback200_ip=_require_value(EDGE3_DEVICE, "loopback200_ip", "edge3"),
+    loopback200_mask=_require_value(EDGE3_DEVICE, "loopback200_mask", "edge3"),
 )
 
 # =============================================================================
@@ -441,18 +501,15 @@ validator = ValidatorConfig(
 
 edge1 = EdgeConfig(
     mgmt_ip=_require_value(EDGE1_DEVICE, "mgmt_ip", "edge1"),
-    csr_file=_optional_value(EDGE1_DEVICE, "csr_file", "vsmart_csr"),
     initial_config=EDGE1_INITIAL_CONFIG,
 )
 
 edge2 = EdgeConfig(
     mgmt_ip=_require_value(EDGE2_DEVICE, "mgmt_ip", "edge2"),
-    csr_file=_optional_value(EDGE2_DEVICE, "csr_file", "vsmart_csr"),
     initial_config=EDGE2_INITIAL_CONFIG,
 )
 
 edge3 = EdgeConfig(
     mgmt_ip=_require_value(EDGE3_DEVICE, "mgmt_ip", "edge3"),
-    csr_file=_optional_value(EDGE3_DEVICE, "csr_file", "vsmart_csr"),
     initial_config=EDGE3_INITIAL_CONFIG,
 )

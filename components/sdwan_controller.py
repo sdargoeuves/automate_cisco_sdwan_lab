@@ -67,7 +67,7 @@ def run_controller_automation(
         net_connect = ensure_connection(
             net_connect,
             "cisco_viptela",
-            config.gmt_ip,
+            config.mgmt_ip,
             config.username,
             config.password,
         )
@@ -89,7 +89,7 @@ def run_certificate_automation(net_connect, config: settings.ControllerConfig) -
     net_connect = ensure_connection(
         net_connect,
         "cisco_viptela",
-        config.gmt_ip,
+        config.mgmt_ip,
         config.username,
         config.password,
     )

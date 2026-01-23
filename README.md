@@ -83,7 +83,6 @@ Add `-v` to any command for verbose console output.
 
 - `logs/sdwan_automation.log` (INFO+)
 - `logs/sdwan_automation.debug.log` (DEBUG)
-- `logs/netmiko_session.log` (Netmiko session transcript)
 
 ## Project Layout
 
