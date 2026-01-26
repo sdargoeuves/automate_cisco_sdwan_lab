@@ -23,7 +23,7 @@ no shut
 router bgp 65102
  bgp log-neighbor-changes
  neighbor 10.1.0.18 remote-as 65100
- neighbor 10.1.0.18 description pe2
+ neighbor 10.1.0.18 description mpls0
  !
  address-family ipv4
   network 10.1.0.16 mask 255.255.255.252

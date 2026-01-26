@@ -14,7 +14,7 @@ no shut
 !!! OUTSIDE Interface (MPLS) -- Already configured as part of template
 !int GigabitEthernet3
 !ip address 10.1.0.5 255.255.255.252
-!description "edge1 to pe1"
+!description "edge1 to mpls0"
 !ip ospf network point-to-point
 !ip ospf 101 area 0.0.0.101
 !no shut
@@ -22,7 +22,7 @@ no shut
 router bgp 65101
  bgp log-neighbor-changes
  neighbor 10.1.0.6 remote-as 65100
- neighbor 10.1.0.6 description pe1
+ neighbor 10.1.0.6 description mpls0
  !
  address-family ipv4
   network 10.1.0.4 mask 255.255.255.252

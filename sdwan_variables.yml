@@ -17,6 +17,9 @@ timing:
   csr_file_timeout_seconds: 60
   netmiko_config_retry_attempts: 2
   netmiko_config_retry_wait_seconds: 20
+  netmiko_commit_read_timeout: 120
+  netmiko_commit_retry_attempts: 2
+  netmiko_commit_retry_wait_seconds: 30
 
 certificates:
   rsa_key: SDWAN.key
@@ -78,7 +81,7 @@ devices:
       mpls_ip: 10.1.0.5
       mpls_mask: 255.255.255.252
       mpls_gw: 10.1.0.6
-      mpls_desc: edge1 to pe1
+      mpls_desc: edge1 to mpls0
       mpls_interface: GigabitEthernet3
       loopback100_ip: 183.100.1.1
       loopback100_mask: 255.255.255.255
@@ -97,7 +100,7 @@ devices:
       mpls_ip: 10.1.0.17
       mpls_mask: 255.255.255.252
       mpls_gw: 10.1.0.18
-      mpls_desc: edge2 to pe2
+      mpls_desc: edge2 to mpls0
       mpls_interface: GigabitEthernet3
       loopback100_ip: 183.100.1.2
       loopback100_mask: 255.255.255.255
@@ -116,7 +119,7 @@ devices:
       mpls_ip: 10.1.0.29
       mpls_mask: 255.255.255.252
       mpls_gw: 10.1.0.30
-      mpls_desc: edge3 to pe3
+      mpls_desc: edge3 to mpls0
       mpls_interface: GigabitEthernet3
       loopback100_ip: 183.100.1.3
       loopback100_mask: 255.255.255.255

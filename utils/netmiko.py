@@ -78,10 +78,34 @@ def push_cli_config(
 
     out.step("Committing configuration...")
     if commit_command:
-        commit_output = net_connect.send_command_timing(
-            commit_command, strip_prompt=False, strip_command=False
-        )
-        output += "\n" + commit_output
+        commit_output = ""
+        attempts = max(1, settings.NETMIKO_COMMIT_RETRY_ATTEMPTS)
+        out.step("Waiting for commit response...")
+        for attempt in range(1, attempts + 1):
+            try:
+                commit_output = net_connect.send_command_timing(
+                    commit_command,
+                    read_timeout=settings.NETMIKO_COMMIT_READ_TIMEOUT,
+                    strip_prompt=False,
+                    strip_command=False,
+                )
+            except ReadTimeout as exc:
+                out.warning(
+                    f"Commit timed out (attempt {attempt}/{attempts}): {exc}"
+                )
+                commit_output = ""
+            output += "\n" + commit_output
+            lower = commit_output.lower()
+            if "commit complete" in lower or "no modifications to commit" in lower:
+                out.success("Commit complete")
+                break
+            if attempt >= attempts:
+                out.error("Commit did not complete after retries.")
+                raise RuntimeError("Commit did not complete after retries.")
+            out.spinner_wait(
+                "Retrying commit",
+                settings.NETMIKO_COMMIT_RETRY_WAIT_SECONDS,
+            )
         output += "\n" + net_connect.send_command_timing(
             "end", strip_prompt=False, strip_command=False
         )

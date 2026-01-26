@@ -58,6 +58,15 @@ NETMIKO_CONFIG_RETRY_ATTEMPTS: int = int(
 NETMIKO_CONFIG_RETRY_WAIT_SECONDS: int = int(
     _TIMING.get("netmiko_config_retry_wait_seconds", 10)
 )
+NETMIKO_COMMIT_READ_TIMEOUT: int = int(
+    _TIMING.get("netmiko_commit_read_timeout", 120)
+)
+NETMIKO_COMMIT_RETRY_ATTEMPTS: int = int(
+    _TIMING.get("netmiko_commit_retry_attempts", 2)
+)
+NETMIKO_COMMIT_RETRY_WAIT_SECONDS: int = int(
+    _TIMING.get("netmiko_commit_retry_wait_seconds", 30)
+)
 
 # Certificate files (same across all devices)
 RSA_KEY: str = _CERTS.get("rsa_key", "SDWAN.key")
