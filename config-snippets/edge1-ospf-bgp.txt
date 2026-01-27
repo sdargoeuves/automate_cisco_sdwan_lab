@@ -1,23 +1,24 @@
 
-
-router ospf 101
- router-id 10.30.0.7
+router ospf 100 vrf 100
+ redistribute omp
+ router-id 10.194.58.17
 
 !!! INSIDE interface
 int GigabitEthernet2
+vrf forwarding 100
 ip address 10.1.0.2 255.255.255.252
 description "edge1 to d1"
 ip ospf network point-to-point
-ip ospf 101 area 0.0.0.101
+ip ospf 100 area 0.0.0.101
 no shut
 
-!!! OUTSIDE Interface (MPLS) -- Already configured as part of template
-!int GigabitEthernet3
-!ip address 10.1.0.5 255.255.255.252
-!description "edge1 to mpls0"
-!ip ospf network point-to-point
-!ip ospf 101 area 0.0.0.101
-!no shut
+!1!! OUTSIDE Interface (MPLS) -- Already configured as part of template
+!!int GigabitEthernet3
+!!ip address 10.1.0.5 255.255.255.252
+!!description "edge1 to mpls0"
+!!ip ospf network point-to-point
+!!ip ospf 100 area 0.0.0.101
+!!no shut
 
 router bgp 65101
  bgp log-neighbor-changes
@@ -25,9 +26,8 @@ router bgp 65101
  neighbor 10.1.0.6 description mpls0
  !
  address-family ipv4
-  network 10.1.0.4 mask 255.255.255.252
+!!  network 10.1.0.4 mask 255.255.255.252
   neighbor 10.1.0.6 activate
  exit-address-family
 !
-
 

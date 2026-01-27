@@ -1,24 +1,24 @@
 
-
-router ospf 102
- router-id 10.30.0.8
+router ospf 100 vrf 100
+ redistribute omp
+ router-id 10.194.58.18
 
 !!! INSIDE interface
 int GigabitEthernet2
+vrf forwarding 100
 ip address 10.1.0.14 255.255.255.252
 description "edge2 to d2"
 ip ospf network point-to-point
-ip ospf 102 area 0.0.0.102
+ip ospf 100 area 0.0.0.102
 no shut
 
-!!! OUTSIDE Interface (MPLS)
-!int GigabitEthernet3
-!ip address 10.1.0.17 255.255.255.252
-!description "edge2 to pe2"
-!ip ospf network point-to-point
-!ip ospf 102 area 0.0.0.102
-!no shut
-
+!!!! OUTSIDE Interface (MPLS)
+!!int GigabitEthernet3
+!!ip address 10.1.0.17 255.255.255.252
+!!description "edge2 to pe2"
+!!ip ospf network point-to-point
+!!ip ospf 100 area 0.0.0.102
+!!no shut
 
 router bgp 65102
  bgp log-neighbor-changes
@@ -26,45 +26,8 @@ router bgp 65102
  neighbor 10.1.0.18 description mpls0
  !
  address-family ipv4
-  network 10.1.0.16 mask 255.255.255.252
+!!  network 10.1.0.16 mask 255.255.255.252
   neighbor 10.1.0.18 activate
  exit-address-family
 !
-
-
-
-vrf definition 100
-    rd 1:100
-    address-family ipv4
-    route-target export 1:100
-    route-target import 1:100
-    exit-address-family
-    !
-    address-family ipv6
-    exit-address-family
-    !
-    !
-interface Loopback100
-    no shutdown
-    arp timeout 1200
-    vrf forwarding 100
-    ip address 183.100.1.2 255.255.255.255
-    no ip redirects
-
-vrf definition 200
-    rd 1:200
-    address-family ipv4
-    route-target export 1:200
-    route-target import 1:200
-    exit-address-family
-    !
-    address-family ipv6
-    exit-address-family
-    !
-interface Loopback200
-    no shutdown
-    arp timeout 1200
-    vrf forwarding 200
-    ip address 183.200.1.2 255.255.255.255
-    no ip redirects
 

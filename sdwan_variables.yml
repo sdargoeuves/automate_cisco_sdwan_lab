@@ -73,6 +73,11 @@ devices:
       mgmt_ip: 10.194.58.17
       system_ip: 10.194.58.17
       site_id: 101
+      vrf_id: 100
+      ospf_instance: 100
+      ospf_area: 0.0.0.101
+      bgp_local_as: 65101
+      bgp_remote_as: 65100
       inet_ip: 10.10.0.13
       inet_mask: 255.255.255.252
       inet_gw: 10.10.0.14
@@ -87,6 +92,16 @@ devices:
       loopback100_mask: 255.255.255.255
       loopback200_ip: 183.200.1.1
       loopback200_mask: 255.255.255.255
+
+      lan_intwerface: GigabitEthernet2
+      lan_ip: 10.1.0.2
+      lan_mask: 255.255.255.252
+      lan_gw: 10.1.0.1
+
+      # lan_subintf_100_mask: 255.255.255.252
+      # lan_subintf_200: GigabitEthernet2.100
+      # lan_subintf_200_ip: 10.1.100.2
+      # lan_subintf_200_mask: 255.255.255.252
 
     edge2:
       mgmt_ip: 10.194.58.18
