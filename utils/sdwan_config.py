@@ -349,7 +349,6 @@ interface Loopback200
  no ip redirects
 
 
-
 sdwan
 interface {inet_interface}
  tunnel-interface
@@ -373,6 +372,52 @@ omp
   advertise static
 exit
 commit
+"""
+
+
+def build_edge_ospf_bgp_config(
+    name: str,
+    system_ip: str,
+    vrf_id: int,
+    ospf_instance: int,
+    ospf_area: str,
+    bgp_local_as: int,
+    bgp_mpls_as: int,
+    bgp_inet_as: int,
+    lan_interface: str,
+    lan_ip: str,
+    lan_mask: str,
+    lan_desc: str,
+    bgp_neighbor_mpls_ip: str,
+    bgp_neighbor_inet_ip: str,
+) -> str:
+    lan_desc_value = lan_desc or f"{name} to d1"
+    return f"""
+
+router ospf {ospf_instance} vrf {vrf_id}
+ redistribute omp
+ router-id {system_ip}
+
+interface {lan_interface}
+ vrf forwarding {vrf_id}
+ ip address {lan_ip} {lan_mask}
+ description "{lan_desc_value}"
+ ip ospf network point-to-point
+ ip ospf {ospf_instance} area {ospf_area}
+ no shut
+
+router bgp {bgp_local_as}
+ bgp log-neighbor-changes
+ neighbor {bgp_neighbor_mpls_ip} remote-as {bgp_mpls_as}
+ neighbor {bgp_neighbor_mpls_ip} description mpls0
+ neighbor {bgp_neighbor_inet_ip} remote-as {bgp_inet_as}
+ neighbor {bgp_neighbor_inet_ip} description inet0
+ !
+ address-family ipv4
+  neighbor {bgp_neighbor_mpls_ip} activate
+  neighbor {bgp_neighbor_inet_ip} activate
+ exit-address-family
+!
 """
 
 
@@ -439,6 +484,57 @@ EDGE1_INITIAL_CONFIG = build_edge_initial_config(
     loopback100_mask=_require_value(EDGE1_DEVICE, "loopback100_mask", "edge1"),
     loopback200_ip=_require_value(EDGE1_DEVICE, "loopback200_ip", "edge1"),
     loopback200_mask=_require_value(EDGE1_DEVICE, "loopback200_mask", "edge1"),
+)
+
+EDGE1_OSPF_BGP_CONFIG = build_edge_ospf_bgp_config(
+    name="edge1",
+    system_ip=_require_value(EDGE1_DEVICE, "system_ip", "edge1"),
+    vrf_id=_require_value(EDGE1_DEVICE, "vrf_id", "edge1"),
+    ospf_instance=_require_value(EDGE1_DEVICE, "ospf_instance", "edge1"),
+    ospf_area=_require_value(EDGE1_DEVICE, "ospf_area", "edge1"),
+    bgp_local_as=_require_value(EDGE1_DEVICE, "bgp_local_as", "edge1"),
+    bgp_mpls_as=_require_value(EDGE1_DEVICE, "bgp_mpls_as", "edge1"),
+    bgp_inet_as=_require_value(EDGE1_DEVICE, "bgp_inet_as", "edge1"),
+    lan_interface=_require_value(EDGE1_DEVICE, "lan_interface", "edge1"),
+    lan_ip=_require_value(EDGE1_DEVICE, "lan_ip", "edge1"),
+    lan_mask=_require_value(EDGE1_DEVICE, "lan_mask", "edge1"),
+    lan_desc=_require_value(EDGE1_DEVICE, "lan_desc", "edge1"),
+    bgp_neighbor_mpls_ip=_require_value(EDGE1_DEVICE, "bgp_neighbor_mpls_ip", "edge1"),
+    bgp_neighbor_inet_ip=_require_value(EDGE1_DEVICE, "bgp_neighbor_inet_ip", "edge1"),
+)
+
+EDGE2_OSPF_BGP_CONFIG = build_edge_ospf_bgp_config(
+    name="edge2",
+    system_ip=_require_value(EDGE2_DEVICE, "system_ip", "edge2"),
+    vrf_id=_require_value(EDGE2_DEVICE, "vrf_id", "edge2"),
+    ospf_instance=_require_value(EDGE2_DEVICE, "ospf_instance", "edge2"),
+    ospf_area=_require_value(EDGE2_DEVICE, "ospf_area", "edge2"),
+    bgp_local_as=_require_value(EDGE2_DEVICE, "bgp_local_as", "edge2"),
+    bgp_mpls_as=_require_value(EDGE2_DEVICE, "bgp_mpls_as", "edge2"),
+    bgp_inet_as=_require_value(EDGE2_DEVICE, "bgp_inet_as", "edge2"),
+    lan_interface=_require_value(EDGE2_DEVICE, "lan_interface", "edge2"),
+    lan_ip=_require_value(EDGE2_DEVICE, "lan_ip", "edge2"),
+    lan_mask=_require_value(EDGE2_DEVICE, "lan_mask", "edge2"),
+    lan_desc=_require_value(EDGE2_DEVICE, "lan_desc", "edge2"),
+    bgp_neighbor_mpls_ip=_require_value(EDGE2_DEVICE, "bgp_neighbor_mpls_ip", "edge2"),
+    bgp_neighbor_inet_ip=_require_value(EDGE2_DEVICE, "bgp_neighbor_inet_ip", "edge2"),
+)
+
+EDGE3_OSPF_BGP_CONFIG = build_edge_ospf_bgp_config(
+    name="edge3",
+    system_ip=_require_value(EDGE3_DEVICE, "system_ip", "edge3"),
+    vrf_id=_require_value(EDGE3_DEVICE, "vrf_id", "edge3"),
+    ospf_instance=_require_value(EDGE3_DEVICE, "ospf_instance", "edge3"),
+    ospf_area=_require_value(EDGE3_DEVICE, "ospf_area", "edge3"),
+    bgp_local_as=_require_value(EDGE3_DEVICE, "bgp_local_as", "edge3"),
+    bgp_mpls_as=_require_value(EDGE3_DEVICE, "bgp_mpls_as", "edge3"),
+    bgp_inet_as=_require_value(EDGE3_DEVICE, "bgp_inet_as", "edge3"),
+    lan_interface=_require_value(EDGE3_DEVICE, "lan_interface", "edge3"),
+    lan_ip=_require_value(EDGE3_DEVICE, "lan_ip", "edge3"),
+    lan_mask=_require_value(EDGE3_DEVICE, "lan_mask", "edge3"),
+    lan_desc=_require_value(EDGE3_DEVICE, "lan_desc", "edge3"),
+    bgp_neighbor_mpls_ip=_require_value(EDGE3_DEVICE, "bgp_neighbor_mpls_ip", "edge3"),
+    bgp_neighbor_inet_ip=_require_value(EDGE3_DEVICE, "bgp_neighbor_inet_ip", "edge3"),
 )
 
 EDGE2_INITIAL_CONFIG = build_edge_initial_config(

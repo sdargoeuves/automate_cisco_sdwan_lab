@@ -163,6 +163,11 @@ def main():
         "--config-file",
         help="Configuration file to push to edges",
     )
+    edges_parser.add_argument(
+        "--ospf-bgp",
+        action="store_true",
+        help="Push edge OSPF/BGP configuration",
+    )
 
     all_parser = subparsers.add_parser(
         "all", help="Run first-boot on all components (manager, validator, controller)"
@@ -274,6 +279,7 @@ def main():
             f"first_boot={args.first_boot} "
             f"initial_config={args.initial_config} "
             f"cert={args.cert} "
+            f"ospf_bgp={args.ospf_bgp} "
             f"config_file={getattr(args, 'config_file', None)}"
         )
     else:
@@ -294,7 +300,9 @@ def main():
         return
     if args.component == "edges":
         has_config_file = hasattr(args, "config_file") and args.config_file
-        if not any([args.first_boot, args.cert, args.initial_config, has_config_file]):
+        if not any(
+            [args.first_boot, args.cert, args.initial_config, has_config_file, args.ospf_bgp]
+        ):
             args._parser.print_help()
             sys.exit(0)
         if args.first_boot:
@@ -329,6 +337,7 @@ def main():
             initial_config=args.initial_config,
             config_file=args.config_file,
             cert=args.cert,
+            ospf_bgp=args.ospf_bgp,
         )
         out.header("Edges Complete")
         out.success("Edge automation finished")

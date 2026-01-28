@@ -77,7 +77,10 @@ devices:
       ospf_instance: 100
       ospf_area: 0.0.0.101
       bgp_local_as: 65101
-      bgp_remote_as: 65100
+      bgp_mpls_as: 65100
+      bgp_inet_as: 65099
+      bgp_neighbor_mpls_ip: 10.1.0.6
+      bgp_neighbor_inet_ip: 10.10.0.14
       inet_ip: 10.10.0.13
       inet_mask: 255.255.255.252
       inet_gw: 10.10.0.14
@@ -93,20 +96,24 @@ devices:
       loopback200_ip: 183.200.1.1
       loopback200_mask: 255.255.255.255
 
-      lan_intwerface: GigabitEthernet2
+      lan_interface: GigabitEthernet2
       lan_ip: 10.1.0.2
       lan_mask: 255.255.255.252
       lan_gw: 10.1.0.1
-
-      # lan_subintf_100_mask: 255.255.255.252
-      # lan_subintf_200: GigabitEthernet2.100
-      # lan_subintf_200_ip: 10.1.100.2
-      # lan_subintf_200_mask: 255.255.255.252
+      lan_desc: edge1 to d1
 
     edge2:
       mgmt_ip: 10.194.58.18
       system_ip: 10.194.58.18
       site_id: 102
+      vrf_id: 100
+      ospf_instance: 100
+      ospf_area: 0.0.0.102
+      bgp_local_as: 65102
+      bgp_mpls_as: 65100
+      bgp_inet_as: 65099
+      bgp_neighbor_mpls_ip: 10.1.0.18
+      bgp_neighbor_inet_ip: 10.10.0.18
       inet_ip: 10.10.0.17
       inet_mask: 255.255.255.252
       inet_gw: 10.10.0.18
@@ -121,11 +128,24 @@ devices:
       loopback100_mask: 255.255.255.255
       loopback200_ip: 183.200.1.2
       loopback200_mask: 255.255.255.255
+      lan_interface: GigabitEthernet2
+      lan_ip: 10.1.0.14
+      lan_mask: 255.255.255.252
+      lan_gw: 10.1.0.13
+      lan_desc: edge2 to d2
 
     edge3:
       mgmt_ip: 10.194.58.19
       system_ip: 10.194.58.19
       site_id: 103
+      vrf_id: 100
+      ospf_instance: 100
+      ospf_area: 0.0.0.103
+      bgp_local_as: 65103
+      bgp_mpls_as: 65100
+      bgp_inet_as: 65099
+      bgp_neighbor_mpls_ip: 10.1.0.30
+      bgp_neighbor_inet_ip: 10.10.0.22
       inet_ip: 10.10.0.21
       inet_mask: 255.255.255.252
       inet_gw: 10.10.0.22
@@ -140,3 +160,8 @@ devices:
       loopback100_mask: 255.255.255.255
       loopback200_ip: 183.200.1.3
       loopback200_mask: 255.255.255.255
+      lan_interface: GigabitEthernet2
+      lan_ip: 10.1.0.26
+      lan_mask: 255.255.255.252
+      lan_gw: 10.1.0.25
+      lan_desc: edge3 to d3
