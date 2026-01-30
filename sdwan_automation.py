@@ -164,9 +164,10 @@ def main():
         help="Configuration file to push to edges",
     )
     edges_parser.add_argument(
-        "--ospf-bgp",
+        "--extra-routing",
         action="store_true",
-        help="Push edge OSPF/BGP configuration",
+        dest="extra_routing",
+        help="Push edge routing configuration",
     )
 
     all_parser = subparsers.add_parser(
@@ -279,7 +280,7 @@ def main():
             f"first_boot={args.first_boot} "
             f"initial_config={args.initial_config} "
             f"cert={args.cert} "
-            f"ospf_bgp={args.ospf_bgp} "
+            f"extra_routing={args.extra_routing} "
             f"config_file={getattr(args, 'config_file', None)}"
         )
     else:
@@ -301,7 +302,13 @@ def main():
     if args.component == "edges":
         has_config_file = hasattr(args, "config_file") and args.config_file
         if not any(
-            [args.first_boot, args.cert, args.initial_config, has_config_file, args.ospf_bgp]
+            [
+                args.first_boot,
+                args.cert,
+                args.initial_config,
+                has_config_file,
+                args.extra_routing,
+            ]
         ):
             args._parser.print_help()
             sys.exit(0)
@@ -337,7 +344,7 @@ def main():
             initial_config=args.initial_config,
             config_file=args.config_file,
             cert=args.cert,
-            ospf_bgp=args.ospf_bgp,
+            extra_routing=args.extra_routing,
         )
         out.header("Edges Complete")
         out.success("Edge automation finished")

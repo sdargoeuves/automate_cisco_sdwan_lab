@@ -375,7 +375,7 @@ commit
 """
 
 
-def build_edge_ospf_bgp_config(
+def build_edge_extra_routing_config(
     name: str,
     system_ip: str,
     vrf_id: int,
@@ -486,7 +486,7 @@ EDGE1_INITIAL_CONFIG = build_edge_initial_config(
     loopback200_mask=_require_value(EDGE1_DEVICE, "loopback200_mask", "edge1"),
 )
 
-EDGE1_OSPF_BGP_CONFIG = build_edge_ospf_bgp_config(
+EDGE1_EXTRA_ROUTING_CONFIG = build_edge_extra_routing_config(
     name="edge1",
     system_ip=_require_value(EDGE1_DEVICE, "system_ip", "edge1"),
     vrf_id=_require_value(EDGE1_DEVICE, "vrf_id", "edge1"),
@@ -503,7 +503,7 @@ EDGE1_OSPF_BGP_CONFIG = build_edge_ospf_bgp_config(
     bgp_neighbor_inet_ip=_require_value(EDGE1_DEVICE, "bgp_neighbor_inet_ip", "edge1"),
 )
 
-EDGE2_OSPF_BGP_CONFIG = build_edge_ospf_bgp_config(
+EDGE2_EXTRA_ROUTING_CONFIG = build_edge_extra_routing_config(
     name="edge2",
     system_ip=_require_value(EDGE2_DEVICE, "system_ip", "edge2"),
     vrf_id=_require_value(EDGE2_DEVICE, "vrf_id", "edge2"),
@@ -520,7 +520,7 @@ EDGE2_OSPF_BGP_CONFIG = build_edge_ospf_bgp_config(
     bgp_neighbor_inet_ip=_require_value(EDGE2_DEVICE, "bgp_neighbor_inet_ip", "edge2"),
 )
 
-EDGE3_OSPF_BGP_CONFIG = build_edge_ospf_bgp_config(
+EDGE3_EXTRA_ROUTING_CONFIG = build_edge_extra_routing_config(
     name="edge3",
     system_ip=_require_value(EDGE3_DEVICE, "system_ip", "edge3"),
     vrf_id=_require_value(EDGE3_DEVICE, "vrf_id", "edge3"),

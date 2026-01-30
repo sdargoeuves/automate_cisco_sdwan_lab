@@ -176,13 +176,13 @@ def _activate_edge_license(
     return False
 
 
-def _get_edge_ospf_bgp_config(edge_name: Optional[str]) -> Optional[str]:
+def _get_edge_extra_routing_config(edge_name: Optional[str]) -> Optional[str]:
     if not edge_name:
         return None
     return {
-        "edge1": settings.EDGE1_OSPF_BGP_CONFIG,
-        "edge2": settings.EDGE2_OSPF_BGP_CONFIG,
-        "edge3": settings.EDGE3_OSPF_BGP_CONFIG,
+        "edge1": settings.EDGE1_EXTRA_ROUTING_CONFIG,
+        "edge2": settings.EDGE2_EXTRA_ROUTING_CONFIG,
+        "edge3": settings.EDGE3_EXTRA_ROUTING_CONFIG,
     }.get(edge_name)
 
 
@@ -191,7 +191,7 @@ def run_edge_automation(
     initial_config: bool = False,
     config_file: Optional[str] = None,
     cert: bool = False,
-    ospf_bgp: bool = False,
+    extra_routing: bool = False,
     device_type: str = "cisco_ios",
     edge_name: Optional[str] = None,
 ) -> None:
@@ -199,7 +199,7 @@ def run_edge_automation(
     label = edge_name or "edge"
     out.log_only(
         f"Edge run start initial_config={initial_config} cert={cert} "
-        f"ospf_bgp={ospf_bgp} "
+        f"extra_routing={extra_routing} "
         f"config_file={config_file} label={label}",
     )
     out.header(f"Automation: EDGE - {label}", f"Target: {config.mgmt_ip}")
@@ -245,8 +245,8 @@ def run_edge_automation(
             read_timeout=settings.NETMIKO_INCREASED_READ_TIMEOUT,
         )
 
-    if ospf_bgp:
-        out.header(f"EDGE - {label}: OSPF/BGP")
+    if extra_routing:
+        out.header(f"EDGE - {label}: Extra Routing Configuration")
         net_connect = ensure_connection(
             net_connect,
             device_type,
@@ -254,14 +254,14 @@ def run_edge_automation(
             config.username,
             config.password,
         )
-        ospf_bgp_config = _get_edge_ospf_bgp_config(edge_name)
-        if not ospf_bgp_config:
-            out.error(f"No OSPF/BGP config available for {label}.")
+        extra_routing_config = _get_edge_extra_routing_config(edge_name)
+        if not extra_routing_config:
+            out.error(f"No extra routing config available for {label}.")
             net_connect.disconnect()
             raise SystemExit(1)
         push_cli_config(
             net_connect,
-            ospf_bgp_config,
+            extra_routing_config,
             config_mode_command="config-transaction",
             commit_command="commit",
             read_timeout=settings.NETMIKO_INCREASED_READ_TIMEOUT,
@@ -314,7 +314,7 @@ def run_edges_automation(
     initial_config: bool = False,
     config_file: Optional[str] = None,
     cert: bool = False,
-    ospf_bgp: bool = False,
+    extra_routing: bool = False,
 ) -> None:
     out = Output(__name__)
     out.header("Automation: EDGES")
@@ -335,6 +335,6 @@ def run_edges_automation(
             initial_config=initial_config,
             config_file=config_file,
             cert=cert,
-            ospf_bgp=ospf_bgp,
+            extra_routing=extra_routing,
             edge_name=edge_name,
         )
