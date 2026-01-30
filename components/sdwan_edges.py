@@ -9,11 +9,12 @@ import re
 import time
 from typing import Optional
 
-import sdwan_config as settings
+from utils import sdwan_config as settings
 from utils.netmiko import (
     bootstrap_initial_config,
     connect_to_device,
     ensure_connection,
+    push_cli_config,
     push_config_from_file,
     scp_copy_file,
 )
@@ -71,12 +72,24 @@ def generate_payg_licenses(
     )
     return licenses
 
+def _clear_logs(net_connect) -> None:
+    # Clear logs once
+    out.step("Clearing device logging buffer...")
+    net_connect.send_command_timing("clear logging")
+    net_connect.send_command_timing("")  # Send enter to confirm
+    time.sleep(1)  # Wait for clear to complete
 
-def _install_root_cert(net_connect) -> None:
+def _install_root_cert(net_connect, use_new_roots: bool = False) -> None:
+    _clear_logs(net_connect)
     out.step("Installing root certificate on edge...")
+    
+    cmd = f"request platform software sdwan root-cert-chain install bootflash:sdwan/{settings.ROOT_CERT}"
+    if use_new_roots:
+        cmd += " new-roots"
+        out.info("Using 'new-roots' option for certificate installation")
+    
     output = net_connect.send_command_timing(
-        f"request platform software sdwan root-cert-chain install "
-        f"bootflash:sdwan/{settings.ROOT_CERT}",
+        cmd,
         strip_prompt=False,
         strip_command=False,
     )
@@ -84,19 +97,6 @@ def _install_root_cert(net_connect) -> None:
     if "Password:" in output:
         out.warning("Unexpected password prompt during root cert install.")
     out.info("Root certificate installation in progress...")
-
-
-def _get_edge_cert_status(net_connect) -> str | None:
-    output = net_connect.send_command_timing(
-        "show sdwan control local-properties | i root-ca-chain-status",
-        strip_prompt=False,
-        strip_command=False,
-    )
-    out.log_only(output)
-    match = re.search(r"root-ca-chain-status\s+(\S+)", output, re.IGNORECASE)
-    if not match:
-        return None
-    return match.group(1).strip().lower()
 
 
 def _wait_for_edge_cert(
@@ -108,19 +108,25 @@ def _wait_for_edge_cert(
         "Waiting for root CA chain to be installed "
         f"(poll {poll_interval_seconds}s, timeout {timeout_seconds}s)..."
     )
+    
     start = time.time()
     while True:
-        status = _get_edge_cert_status(net_connect)
-        if status == "installed":
+        output = net_connect.send_command_timing("show logging | include ROOT_CERT_CHAIN_INSTALLED")
+        
+        # Check for new-roots requirement
+        if "new-roots" in output.lower():
+            out.warning("Certificate installation requires 'new-roots' option")
+            return False
+        
+        if "%CERT-5-ROOT_CERT_CHAIN_INSTALLED" in output:
             out.success("Root CA chain status is Installed.")
             return True
+            
         if time.time() - start >= timeout_seconds:
             out.warning("Root CA chain did not reach Installed before timeout.")
             return False
-        out.spinner_wait(
-            "Next root CA chain check",
-            poll_interval_seconds,
-        )
+            
+        out.spinner_wait("Next root CA chain check", poll_interval_seconds)
 
 
 def _activate_edge_license(
@@ -170,11 +176,22 @@ def _activate_edge_license(
     return False
 
 
+def _get_edge_ospf_bgp_config(edge_name: Optional[str]) -> Optional[str]:
+    if not edge_name:
+        return None
+    return {
+        "edge1": settings.EDGE1_OSPF_BGP_CONFIG,
+        "edge2": settings.EDGE2_OSPF_BGP_CONFIG,
+        "edge3": settings.EDGE3_OSPF_BGP_CONFIG,
+    }.get(edge_name)
+
+
 def run_edge_automation(
     config: settings.EdgeConfig,
     initial_config: bool = False,
     config_file: Optional[str] = None,
     cert: bool = False,
+    ospf_bgp: bool = False,
     device_type: str = "cisco_ios",
     edge_name: Optional[str] = None,
 ) -> None:
@@ -182,9 +199,10 @@ def run_edge_automation(
     label = edge_name or "edge"
     out.log_only(
         f"Edge run start initial_config={initial_config} cert={cert} "
+        f"ospf_bgp={ospf_bgp} "
         f"config_file={config_file} label={label}",
     )
-    out.header(f"Automation: EDGE - {label}", f"Target: {config.ip}")
+    out.header(f"Automation: EDGE - {label}", f"Target: {config.mgmt_ip}")
 
     net_connect = None
 
@@ -193,7 +211,7 @@ def run_edge_automation(
         net_connect = bootstrap_initial_config(
             device_label=label,
             device_type=device_type,
-            host=config.ip,
+            host=config.mgmt_ip,
             username=config.username,
             default_password=config.default_password,
             updated_password=config.password,
@@ -205,7 +223,7 @@ def run_edge_automation(
     else:
         net_connect = connect_to_device(
             device_type,
-            config.ip,
+            config.mgmt_ip,
             config.username,
             config.password,
         )
@@ -215,7 +233,7 @@ def run_edge_automation(
         net_connect = ensure_connection(
             net_connect,
             device_type,
-            config.ip,
+            config.mgmt_ip,
             config.username,
             config.password,
         )
@@ -227,12 +245,34 @@ def run_edge_automation(
             read_timeout=settings.NETMIKO_INCREASED_READ_TIMEOUT,
         )
 
+    if ospf_bgp:
+        out.header(f"EDGE - {label}: OSPF/BGP")
+        net_connect = ensure_connection(
+            net_connect,
+            device_type,
+            config.mgmt_ip,
+            config.username,
+            config.password,
+        )
+        ospf_bgp_config = _get_edge_ospf_bgp_config(edge_name)
+        if not ospf_bgp_config:
+            out.error(f"No OSPF/BGP config available for {label}.")
+            net_connect.disconnect()
+            raise SystemExit(1)
+        push_cli_config(
+            net_connect,
+            ospf_bgp_config,
+            config_mode_command="config-transaction",
+            commit_command="commit",
+            read_timeout=settings.NETMIKO_INCREASED_READ_TIMEOUT,
+        )
+
     if cert:
         out.header(f"EDGE: {label} - Certificate and License")
         net_connect = ensure_connection(
             net_connect,
             device_type,
-            config.ip,
+            config.mgmt_ip,
             config.username,
             config.password,
         )
@@ -253,10 +293,10 @@ def run_edge_automation(
         ):
             net_connect.disconnect()
             raise SystemExit(1)
-        _install_root_cert(net_connect)
+        _install_root_cert(net_connect)        
         if not _wait_for_edge_cert(net_connect):
-            out.step("Re-installing root certificate after timeout...")
-            _install_root_cert(net_connect)
+            out.step("Re-installing root certificate with 'new-roots' option...")
+            _install_root_cert(net_connect, use_new_roots=True)
             if not _wait_for_edge_cert(net_connect):
                 out.error("Device certificate still not installed; aborting activation.")
                 net_connect.disconnect()
@@ -274,6 +314,7 @@ def run_edges_automation(
     initial_config: bool = False,
     config_file: Optional[str] = None,
     cert: bool = False,
+    ospf_bgp: bool = False,
 ) -> None:
     out = Output(__name__)
     out.header("Automation: EDGES")
@@ -294,5 +335,6 @@ def run_edges_automation(
             initial_config=initial_config,
             config_file=config_file,
             cert=cert,
+            ospf_bgp=ospf_bgp,
             edge_name=edge_name,
         )

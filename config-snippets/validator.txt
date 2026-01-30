@@ -1,3 +1,0 @@
-vpn 512
-interface eth0
-description "Management interface, VPN512, connected to netlab-host"

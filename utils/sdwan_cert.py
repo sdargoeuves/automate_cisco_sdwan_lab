@@ -1,4 +1,4 @@
-import sdwan_config as settings
+from utils import sdwan_config as settings
 from utils.netmiko import connect_to_device
 from utils.output import Output
 from utils.sdwan_sdk import SdkCallError, sdk_call_raw
@@ -10,7 +10,7 @@ def fetch_root_material_from_manager() -> tuple[str, str]:
     out.step("Reading RSA key and root certificate from Manager...")
     manager_conn = connect_to_device(
         "cisco_viptela",
-        settings.manager.ip,
+        settings.manager.mgmt_ip,
         settings.manager.username,
         settings.manager.password,
     )

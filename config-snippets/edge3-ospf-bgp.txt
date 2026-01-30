@@ -1,0 +1,33 @@
+
+router ospf 100 vrf 100
+ redistribute omp
+ router-id 10.194.58.19
+
+!!! INSIDE interface
+int GigabitEthernet2
+vrf forwarding 100
+ip address 10.1.0.26 255.255.255.252
+description "edge3 to d3"
+ip ospf network point-to-point
+ip ospf 100 area 0.0.0.103
+no shut
+
+!!! OUTSIDE Interface (MPLS)
+!int GigabitEthernet3
+!ip address 10.1.0.29 255.255.255.252
+!description "edge3 to mpls0"
+!ip ospf network point-to-point
+!ip ospf 100 area 0.0.0.103
+!no shut
+
+router bgp 65103
+ bgp log-neighbor-changes
+ neighbor 10.1.0.30 remote-as 65100
+ neighbor 10.1.0.30 description pe3
+ !
+ address-family ipv4
+  network 10.1.0.28 mask 255.255.255.252
+  neighbor 10.1.0.30 activate
+ exit-address-family
+!
+
