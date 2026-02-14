@@ -9,7 +9,7 @@ tasks and the Sastre SDK for Manager API interactions.
 - Manager (vManage) first-boot config push and enterprise root certificate setup
 - Validator (vBond) first-boot config push and pulls cert from Manager
 - Controller (vSmart) first-boot config push and pulls cert from Manager
-- Edge (cEdge) first-boot config and certificate automation (edge1/edge2/edge3)
+- Edge (cEdge) first-boot config and certificate automation (per-edge keys under `devices.edges`)
 - Optional extra routing for edges from the sdwan_variables.yml file (OSPF/BGP)
 - Optional config file push for each component
 - Structured console output and rotating log files
@@ -43,6 +43,60 @@ No code changes are required for normal lab updates. The script reads
 at runtime. If a required key is missing, the script will fail fast with a clear
 error that includes the missing key name.
 
+### How to set up `sdwan_variables.yml`
+
+Use the existing file as a template. The keys under `devices` are the source of
+truth for what the automation will manage.
+
+1) Set shared/global values
+- `shared`: org name, usernames, passwords, API port
+- `timing`: wait/retry timers
+- `certificates`: file names for RSA key, root cert, signed cert
+
+2) Define the control-plane devices
+- `devices.manager|validator|controller`: management IPs and the first-boot
+  CLI inputs (system IP, site ID, gateway, interface details)
+
+3) Define edges using your real device names
+- `devices.edges.<edge_name>`: each edge is keyed by its real name. Those keys
+  are what you pass to the CLI (`./sdwan_automation.py edges <edge_name> ...`).
+
+Example (edges):
+
+```yaml
+devices:
+  edges:
+    edge1x01:
+      mgmt_ip: 10.194.58.21
+      system_ip: 10.30.0.7
+      site_id: 101
+      vrf_id: 1
+      inet_interface: GigabitEthernet2
+      inet_ip: 10.10.0.13
+      inet_mask: 255.255.255.0
+      inet_gw: 10.10.0.1
+      inet_desc: edge1x01 to inet0
+      mpls_interface: GigabitEthernet3
+      mpls_ip: 10.1.0.2
+      mpls_mask: 255.255.255.0
+      mpls_gw: 10.1.0.1
+      mpls_desc: edge1x01 to mpls0
+      lan_interface: GigabitEthernet4
+      lan_ip: 192.168.10.1
+      lan_mask: 255.255.255.0
+      lan_desc: edge1x01 to LAN
+      ospf_instance: 1
+      ospf_area: 0
+      bgp_local_as: 65010
+      bgp_mpls_as: 65000
+      bgp_inet_as: 65001
+```
+
+Notes:
+- Optional `lan2_*` keys can be omitted unless you want a second LAN interface.
+- If a required key is missing, the script exits with a clear error and the
+  edge name that failed.
+
 ### Variables guide (what to edit)
 
 - `shared`: org name, default/updated passwords, API port
@@ -51,10 +105,10 @@ error that includes the missing key name.
 - `network`: shared network values (validator/controller system IPs)
 - `devices.manager|validator|controller`: management IPs and initial config
   fields used to build the first-boot CLI
-- `devices.edges.edge1|edge2|edge3`: per-edge values for initial config and
+- `devices.edges.<edge_name>`: per-edge values for initial config and
   optional extra routing config (OSPF/BGP) (used by `--extra-routing`)
 
-Edge targets must match the keys under `devices.edges` (edge1/edge2/edge3).
+Edge targets must match the keys under `devices.edges` (for example: edge1x01/edge2x01/edge3x01).
 Using `edges all` selects every edge defined there.
 
 The defaults assume:
@@ -82,12 +136,12 @@ Run from the `automate_sdwan` directory.
 Targets are required and can be a comma-separated list or `all`:
 
 ```bash
-./sdwan_automation.py edges edge1 --first-boot
-./sdwan_automation.py edges edge1,edge2 --initial-config
-./sdwan_automation.py edges edge3 --cert
+./sdwan_automation.py edges edge1x01 --first-boot
+./sdwan_automation.py edges edge1x01,edge2x01 --initial-config
+./sdwan_automation.py edges edge3x01 --cert
 ./sdwan_automation.py edges all --cert
-./sdwan_automation.py edges edge2 --config-file myconfig.txt
-./sdwan_automation.py edges edge1 --extra-routing
+./sdwan_automation.py edges edge2x01 --config-file myconfig.txt
+./sdwan_automation.py edges edge1x01 --extra-routing
 ```
 
 Edge options:

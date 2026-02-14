@@ -179,11 +179,7 @@ def _activate_edge_license(
 def _get_edge_extra_routing_config(edge_name: Optional[str]) -> Optional[str]:
     if not edge_name:
         return None
-    return {
-        "edge1": settings.EDGE1_EXTRA_ROUTING_CONFIG,
-        "edge2": settings.EDGE2_EXTRA_ROUTING_CONFIG,
-        "edge3": settings.EDGE3_EXTRA_ROUTING_CONFIG,
-    }.get(edge_name)
+    return settings.EDGE_EXTRA_ROUTING_CONFIGS.get(edge_name)
 
 
 def run_edge_automation(
@@ -323,11 +319,7 @@ def run_edges_automation(
         out.warning("No edge configs provided; nothing to do.")
         return
 
-    edge_name_by_id = {
-        id(cfg): name
-        for name, cfg in vars(settings).items()
-        if isinstance(cfg, settings.EdgeConfig)
-    }
+    edge_name_by_id = {id(cfg): name for name, cfg in settings.EDGES.items()}
     for edge_config in edge_configs:
         edge_name = edge_name_by_id.get(id(edge_config), "edge")
         run_edge_automation(

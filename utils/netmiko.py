@@ -1,8 +1,9 @@
+import re
 import sys
 import time
 from pathlib import Path
 
-from netmiko import ConnectHandler
+from netmiko import ConnectHandler, ReadTimeout
 
 from utils import sdwan_config as settings
 from utils.output import Output
@@ -36,6 +37,63 @@ def connect_to_device(device_type, host, username, password, exit_on_failure=Tru
         if exit_on_failure:
             out.error(f"Failed to connect to {host}: {e}")
             sys.exit(1)
+        return None
+
+
+def connect_to_device_with_error(
+    device_type,
+    host,
+    username,
+    password,
+    exit_on_failure=True,
+):
+    """
+    Connect to a device using Netmiko, returning (connection, error_text).
+    """
+    device = {
+        "device_type": device_type,
+        "host": host,
+        "username": username,
+        "password": password,
+    }
+
+    try:
+        net_connect = ConnectHandler(**device)
+        out.log_only(f"Connected to {host} as {username}")
+        return net_connect, ""
+    except Exception as e:
+        out.log_only(f"Connection to {host} failed: {e}", level="debug")
+        if exit_on_failure:
+            out.error(f"Failed to connect to {host}: {e}")
+            sys.exit(1)
+        return None, str(e)
+
+
+def is_account_lockout_error(error_text: str) -> bool:
+    if not error_text:
+        return False
+    lower = error_text.lower()
+    lock_phrases = [
+        "account is locked",
+        "locked due to",
+        "too many authentication failures",
+        "login disabled",
+    ]
+    return any(phrase in lower for phrase in lock_phrases)
+
+
+def parse_lockout_minutes(error_text: str) -> int | None:
+    if not error_text:
+        return None
+    lower = error_text.lower()
+    if "minutes left" not in lower:
+        return None
+    match = re.search(r"(\d+)\s*minute[s]?\s*left", lower)
+    if not match:
+        return None
+    try:
+        return int(match.group(1))
+    except ValueError:
         return None
 
 
@@ -200,48 +258,166 @@ def bootstrap_initial_config(
     commit_command: str | None = None,
     read_timeout: float | None = None,
 ):
-    out.step("Attempting to connect with default credentials...")
-    net_connect = connect_to_device(
-        device_type,
-        host,
-        username,
-        default_password,
-        exit_on_failure=False,
-    )
+    initial_config_empty = not initial_config.strip()
+    if initial_config_empty:
+        out.warning(f"{device_label} initial config is empty; skipping.")
 
-    if net_connect:
-        if not initial_config.strip():
-            out.warning(f"{device_label} initial config is empty; skipping.")
+    retry_wait_seconds = 120
+    retry_max_seconds = 900
+    started = time.monotonic()
+    attempt = 0
+    last_error_summary = ""
+
+    while True:
+        if initial_config_empty:
+            net_connect, error_text = connect_to_device_with_error(
+                device_type,
+                host,
+                username,
+                updated_password,
+                exit_on_failure=False,
+            )
+            if net_connect:
+                return net_connect
+            if error_text:
+                last_error_summary = error_text.splitlines()[0] if error_text else ""
+                out.warning(f"Connection failed: {error_text}")
+            if is_account_lockout_error(error_text):
+                lockout_minutes = parse_lockout_minutes(error_text)
+                if lockout_minutes:
+                    wait_seconds = lockout_minutes * 60
+                    retry_max_seconds = max(
+                        retry_max_seconds, (time.monotonic() - started) + wait_seconds + 30
+                    )
+                    out.warning(
+                        f"Account is locked; waiting {lockout_minutes} minute(s) before retry."
+                    )
+                    out.spinner_wait("Waiting for account unlock", wait_seconds)
+                    continue
+                out.error(
+                    "Account is locked due to failed logins; "
+                    "stopping retries for initial configuration."
+                )
+                return None
         else:
-            push_initial_config(
-                net_connect,
-                initial_config,
-                config_mode_command=config_mode_command,
-                commit_command=commit_command,
-                read_timeout=read_timeout,
+            out.step("Attempting to connect with default credentials...")
+            net_connect, error_text = connect_to_device_with_error(
+                device_type,
+                host,
+                username,
+                default_password,
+                exit_on_failure=False,
             )
 
-        net_connect.disconnect()
-        net_connect = connect_to_device(device_type, host, username, updated_password)
-        return net_connect
+            if net_connect:
+                push_initial_config(
+                    net_connect,
+                    initial_config,
+                    config_mode_command=config_mode_command,
+                    commit_command=commit_command,
+                    read_timeout=read_timeout,
+                )
 
-    out.warning("Default credentials failed, trying configured password...")
-    net_connect = connect_to_device(device_type, host, username, updated_password)
-    if not net_connect:
-        out.error("Failed to connect with both default and updated passwords.")
-        return None
-    if not initial_config.strip():
-        out.warning(f"{device_label} initial config is empty; skipping.")
-        return net_connect
-    out.step("Re-applying initial configuration...")
-    push_initial_config(
-        net_connect,
-        initial_config,
-        config_mode_command=config_mode_command,
-        commit_command=commit_command,
-        read_timeout=read_timeout,
-    )
-    return net_connect
+                net_connect.disconnect()
+
+                out.step("Reconnecting with updated credentials...")
+                net_connect, error_text = connect_to_device_with_error(
+                    device_type,
+                    host,
+                    username,
+                    updated_password,
+                    exit_on_failure=False,
+                )
+                if net_connect:
+                    return net_connect
+                if error_text:
+                    out.warning(f"Reconnection failed: {error_text}")
+                if is_account_lockout_error(error_text):
+                    lockout_minutes = parse_lockout_minutes(error_text)
+                    if lockout_minutes:
+                        wait_seconds = lockout_minutes * 60
+                        retry_max_seconds = max(
+                            retry_max_seconds,
+                            (time.monotonic() - started) + wait_seconds + 30,
+                        )
+                        out.warning(
+                            f"Account is locked; waiting {lockout_minutes} minute(s) before retry."
+                        )
+                        out.spinner_wait("Waiting for account unlock", wait_seconds)
+                        continue
+                    out.error(
+                        "Account is locked due to failed logins; "
+                        "stopping retries for initial configuration."
+                    )
+                    return None
+                out.warning(
+                    "Connected with default credentials but failed to reconnect "
+                    "with updated credentials."
+                )
+            else:
+                if error_text:
+                    last_error_summary = error_text.splitlines()[0]
+                    out.warning(f"Default credentials failed: {error_text}")
+                out.warning("Default credentials failed, trying configured password...")
+                net_connect, error_text = connect_to_device_with_error(
+                    device_type,
+                    host,
+                    username,
+                    updated_password,
+                    exit_on_failure=False,
+                )
+                if net_connect:
+                    out.step("Re-applying initial configuration...")
+                    push_initial_config(
+                        net_connect,
+                        initial_config,
+                        config_mode_command=config_mode_command,
+                        commit_command=commit_command,
+                        read_timeout=read_timeout,
+                    )
+                    return net_connect
+                if error_text:
+                    last_error_summary = error_text.splitlines()[0]
+                    out.warning(f"Configured credentials failed: {error_text}")
+                if is_account_lockout_error(error_text):
+                    lockout_minutes = parse_lockout_minutes(error_text)
+                    if lockout_minutes:
+                        wait_seconds = lockout_minutes * 60
+                        retry_max_seconds = max(
+                            retry_max_seconds,
+                            (time.monotonic() - started) + wait_seconds + 30,
+                        )
+                        out.warning(
+                            f"Account is locked; waiting {lockout_minutes} minute(s) before retry."
+                        )
+                        out.spinner_wait("Waiting for account unlock", wait_seconds)
+                        continue
+                    out.error(
+                        "Account is locked due to failed logins; "
+                        "stopping retries for initial configuration."
+                    )
+                    return None
+
+        elapsed = time.monotonic() - started
+        if elapsed >= retry_max_seconds:
+            if initial_config_empty:
+                out.error("Failed to connect with configured password.")
+            else:
+                out.error("Failed to connect with both default and updated passwords.")
+            return None
+        wait_seconds = retry_wait_seconds
+        elapsed = time.monotonic() - started
+        reason = f"last error: {last_error_summary}" if last_error_summary else "no error detail"
+        out.info(
+            "Retrying initial connection in "
+            f"{int(wait_seconds)}s (attempt {attempt + 1}, "
+            f"elapsed {int(elapsed)}s, {reason})."
+        )
+        attempt += 1
+        out.spinner_wait(
+            "Retrying initial connection",
+            wait_seconds,
+        )
 
 
 def wait_for_prompt(net_connect, timeout: int = 30) -> str:

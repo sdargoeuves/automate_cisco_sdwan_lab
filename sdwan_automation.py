@@ -136,7 +136,7 @@ def main():
     edges_parser.set_defaults(_parser=edges_parser)
     edges_parser.add_argument(
         "targets",
-        help="Comma-separated edge names (edge1,edge2) or 'all'",
+        help="Comma-separated edge names (keys under devices.edges) or 'all'",
     )
     edges_parser.add_argument(
         "-v",
@@ -249,11 +249,7 @@ def main():
             cert=True,
         )
         show_controller_status(settings.manager, out=out)
-        edge_configs = [
-            value
-            for value in vars(settings).values()
-            if isinstance(value, settings.EdgeConfig)
-        ]
+        edge_configs = list(settings.EDGES.values())
         if not edge_configs:
             out.warning("No edge configs found in utils/sdwan_config.py.")
         else:
@@ -322,18 +318,14 @@ def main():
             sys.exit(1)
 
         if len(targets) == 1 and targets[0].lower() == "all":
-            edge_configs = [
-                value
-                for name, value in vars(settings).items()
-                if name.startswith("edge") and isinstance(value, settings.EdgeConfig)
-            ]
+            edge_configs = list(settings.EDGES.values())
             if not edge_configs:
                 out.error("No edge configs found in utils/sdwan_config.py.")
                 sys.exit(1)
         else:
             edge_configs = []
             for target in targets:
-                config = getattr(settings, target, None)
+                config = settings.EDGES.get(target)
                 if config is None:
                     out.error(f"Unknown edge target: {target}")
                     sys.exit(1)
