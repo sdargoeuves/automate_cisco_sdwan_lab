@@ -21,8 +21,27 @@ _VARS = _load_variables()
 _SHARED = _VARS.get("shared", {})
 _TIMING = _VARS.get("timing", {})
 _CERTS = _VARS.get("certificates", {})
-_NETWORK = _VARS.get("network", {})
 _DEVICES = _VARS.get("devices", {})
+
+
+def _require_device(name: str) -> dict:
+    device = _DEVICES.get(name)
+    if device is None:
+        raise KeyError(f"Missing device '{name}' in {_VARIABLES_PATH}")
+    device = dict(device)
+    device["_name"] = name
+    return device
+
+
+def _require_value(device: dict, key: str, name: str = None):
+    if key not in device:
+        device_name = name or device.get("_name") or "device"
+        raise KeyError(f"Missing '{key}' for '{device_name}' in {_VARIABLES_PATH}")
+    return device[key]
+
+
+def _optional_value(device: dict, key: str, default):
+    return device.get(key, default)
 
 ORG: str = _SHARED.get("org", "ipf-netlab")
 USERNAME: str = _SHARED.get("username", "admin")
@@ -73,26 +92,9 @@ RSA_KEY: str = _CERTS.get("rsa_key", "SDWAN.key")
 ROOT_CERT: str = _CERTS.get("root_cert", "SDWAN.pem")
 SIGNED_CERT: str = _CERTS.get("signed_cert", "NewCertificate.crt")
 
-# Network
-VALIDATOR_IP: str = _NETWORK.get("validator_ip", "10.10.0.6")
-CONTROLLER_IP: str = _NETWORK.get("controller_ip", "10.10.0.10")
-
-
-def _require_device(name: str) -> dict:
-    device = _DEVICES.get(name)
-    if device is None:
-        raise KeyError(f"Missing device '{name}' in {_VARIABLES_PATH}")
-    return device
-
-
-def _require_value(device: dict, key: str, name: str):
-    if key not in device:
-        raise KeyError(f"Missing '{key}' for '{name}' in {_VARIABLES_PATH}")
-    return device[key]
-
-
-def _optional_value(device: dict, key: str, default):
-    return device.get(key, default)
+# Network (derived from device interface IPs)
+VALIDATOR_IP: str = _require_value(_require_device("validator"), "interface_ip")
+CONTROLLER_IP: str = _require_value(_require_device("controller"), "interface_ip")
 
 
 # =============================================================================
@@ -261,6 +263,7 @@ def build_edge_initial_config(
     name: str,
     system_ip: str,
     site_id: int,
+    vrf_id: int,
     inet_ip: str,
     inet_mask: str,
     inet_gw: str,
@@ -271,10 +274,6 @@ def build_edge_initial_config(
     mpls_gw: str,
     mpls_desc: str,
     mpls_interface: str,
-    loopback100_ip: str,
-    loopback100_mask: str,
-    loopback200_ip: str,
-    loopback200_mask: str,
 ) -> str:
     return f"""
 no ip domain lookup
@@ -313,41 +312,16 @@ interface Tunnel2
 exit
 
 
-
-vrf definition 100
- rd 1:100
+vrf definition {vrf_id}
+ rd 1:{vrf_id}
  address-family ipv4
-  route-target export 1:100
-  route-target import 1:100
+  route-target export 1:{vrf_id}
+  route-target import 1:{vrf_id}
  exit-address-family
 !
  address-family ipv6
  exit-address-family
 !
-vrf definition 200
- rd 1:200
- address-family ipv4
-  route-target export 1:200
-  route-target import 1:200
- exit-address-family
- !
- address-family ipv6
- exit-address-family
-!
-interface Loopback100
- no shutdown
- arp timeout 1200
- vrf forwarding 100
- ip address {loopback100_ip} {loopback100_mask}
- no ip redirects
-
-interface Loopback200
- no shutdown
- arp timeout 1200
- vrf forwarding 200
- ip address {loopback200_ip} {loopback200_mask}
- no ip redirects
-
 
 sdwan
 interface {inet_interface}
@@ -368,14 +342,14 @@ omp
  address-family ipv4
   advertise bgp
   advertise connected
-  !advertise ospf
+  advertise ospf external
   advertise static
 exit
 commit
 """
 
 
-def build_edge_ospf_bgp_config(
+def build_edge_extra_routing_config(
     name: str,
     system_ip: str,
     vrf_id: int,
@@ -388,10 +362,27 @@ def build_edge_ospf_bgp_config(
     lan_ip: str,
     lan_mask: str,
     lan_desc: str,
-    bgp_neighbor_mpls_ip: str,
-    bgp_neighbor_inet_ip: str,
+    mpls_gw: str,
+    inet_gw: str,
+    lan2_interface: str = None,
+    lan2_ip: str = None,
+    lan2_mask: str = None,
+    lan2_desc: str = None,
 ) -> str:
-    lan_desc_value = lan_desc or f"{name} to d1"
+    second_lan_interface = ""
+    if lan2_interface and lan2_ip and lan2_mask and lan2_desc:
+        second_lan_interface = f"""
+
+interface {lan2_interface}
+ vrf forwarding {vrf_id}
+ ip address {lan2_ip} {lan2_mask}
+ description "{lan2_desc}"
+ ip ospf network point-to-point
+ ip ospf {ospf_instance} area {ospf_area}
+ no shut
+
+"""
+
     return f"""
 
 router ospf {ospf_instance} vrf {vrf_id}
@@ -401,24 +392,24 @@ router ospf {ospf_instance} vrf {vrf_id}
 interface {lan_interface}
  vrf forwarding {vrf_id}
  ip address {lan_ip} {lan_mask}
- description "{lan_desc_value}"
+ description "{lan_desc}"
  ip ospf network point-to-point
  ip ospf {ospf_instance} area {ospf_area}
  no shut
 
 router bgp {bgp_local_as}
  bgp log-neighbor-changes
- neighbor {bgp_neighbor_mpls_ip} remote-as {bgp_mpls_as}
- neighbor {bgp_neighbor_mpls_ip} description mpls0
- neighbor {bgp_neighbor_inet_ip} remote-as {bgp_inet_as}
- neighbor {bgp_neighbor_inet_ip} description inet0
+ neighbor {mpls_gw} remote-as {bgp_mpls_as}
+ neighbor {mpls_gw} description mpls0
+ neighbor {inet_gw} remote-as {bgp_inet_as}
+ neighbor {inet_gw} description inet0
  !
  address-family ipv4
-  neighbor {bgp_neighbor_mpls_ip} activate
-  neighbor {bgp_neighbor_inet_ip} activate
+  neighbor {mpls_gw} activate
+  neighbor {inet_gw} activate
  exit-address-family
 !
-"""
+""" + second_lan_interface
 
 
 # =============================================================================
@@ -428,160 +419,99 @@ MANAGER_DEVICE = _require_device("manager")
 VALIDATOR_DEVICE = _require_device("validator")
 CONTROLLER_DEVICE = _require_device("controller")
 EDGE_GROUP = _require_device("edges")
-EDGE1_DEVICE = EDGE_GROUP.get("edge1")
-EDGE2_DEVICE = EDGE_GROUP.get("edge2")
-EDGE3_DEVICE = EDGE_GROUP.get("edge3")
+EDGE_DEVICES: dict[str, dict] = {}
+for edge_name, edge_device in EDGE_GROUP.items():
+    if edge_name == "_name":
+        continue
+    if not isinstance(edge_device, dict):
+        raise TypeError(
+            f"Edge '{edge_name}' in {_VARIABLES_PATH} must be a mapping."
+        )
+    device_copy = dict(edge_device)
+    device_copy["_name"] = edge_name
+    EDGE_DEVICES[edge_name] = device_copy
 
-if EDGE1_DEVICE is None or EDGE2_DEVICE is None or EDGE3_DEVICE is None:
-    raise KeyError(f"Missing edge definitions in {_VARIABLES_PATH}")
+if not EDGE_DEVICES:
+    raise KeyError(f"Missing edge definitions in {_VARIABLES_PATH}.")
+
+EDGE_NAMES = tuple(EDGE_DEVICES.keys())
 
 
 MANAGER_INITIAL_CONFIG = build_manager_initial_config(
-    system_ip=_require_value(MANAGER_DEVICE, "system_ip", "manager"),
-    site_id=_require_value(MANAGER_DEVICE, "site_id", "manager"),
-    route_gw=_require_value(MANAGER_DEVICE, "route_gw", "manager"),
-    interface_name=_require_value(MANAGER_DEVICE, "interface_name", "manager"),
-    interface_ip=_require_value(MANAGER_DEVICE, "interface_ip", "manager"),
-    interface_prefix=_require_value(MANAGER_DEVICE, "interface_prefix", "manager"),
-    interface_desc=_require_value(MANAGER_DEVICE, "interface_desc", "manager"),
+    system_ip=_require_value(MANAGER_DEVICE, "system_ip"),
+    site_id=_require_value(MANAGER_DEVICE, "site_id"),
+    route_gw=_require_value(MANAGER_DEVICE, "route_gw"),
+    interface_name=_require_value(MANAGER_DEVICE, "interface_name"),
+    interface_ip=_require_value(MANAGER_DEVICE, "interface_ip"),
+    interface_prefix=_require_value(MANAGER_DEVICE, "interface_prefix"),
+    interface_desc=_require_value(MANAGER_DEVICE, "interface_desc"),
 )
 
 VALIDATOR_INITIAL_CONFIG = build_validator_initial_config(
-    system_ip=_require_value(VALIDATOR_DEVICE, "system_ip", "validator"),
-    site_id=_require_value(VALIDATOR_DEVICE, "site_id", "validator"),
-    route_gw=_require_value(VALIDATOR_DEVICE, "route_gw", "validator"),
-    interface_name=_require_value(VALIDATOR_DEVICE, "interface_name", "validator"),
-    interface_ip=_require_value(VALIDATOR_DEVICE, "interface_ip", "validator"),
-    interface_prefix=_require_value(VALIDATOR_DEVICE, "interface_prefix", "validator"),
-    interface_desc=_require_value(VALIDATOR_DEVICE, "interface_desc", "validator"),
+    system_ip=_require_value(VALIDATOR_DEVICE, "system_ip"),
+    site_id=_require_value(VALIDATOR_DEVICE, "site_id"),
+    route_gw=_require_value(VALIDATOR_DEVICE, "route_gw"),
+    interface_name=_require_value(VALIDATOR_DEVICE, "interface_name"),
+    interface_ip=_require_value(VALIDATOR_DEVICE, "interface_ip"),
+    interface_prefix=_require_value(VALIDATOR_DEVICE, "interface_prefix"),
+    interface_desc=_require_value(VALIDATOR_DEVICE, "interface_desc"),
 )
 
 CONTROLLER_INITIAL_CONFIG = build_controller_initial_config(
-    system_ip=_require_value(CONTROLLER_DEVICE, "system_ip", "controller"),
-    site_id=_require_value(CONTROLLER_DEVICE, "site_id", "controller"),
-    route_gw=_require_value(CONTROLLER_DEVICE, "route_gw", "controller"),
-    interface_name=_require_value(CONTROLLER_DEVICE, "interface_name", "controller"),
-    interface_ip=_require_value(CONTROLLER_DEVICE, "interface_ip", "controller"),
-    interface_prefix=_require_value(CONTROLLER_DEVICE, "interface_prefix", "controller"),
-    interface_desc=_require_value(CONTROLLER_DEVICE, "interface_desc", "controller"),
+    system_ip=_require_value(CONTROLLER_DEVICE, "system_ip"),
+    site_id=_require_value(CONTROLLER_DEVICE, "site_id"),
+    route_gw=_require_value(CONTROLLER_DEVICE, "route_gw"),
+    interface_name=_require_value(CONTROLLER_DEVICE, "interface_name"),
+    interface_ip=_require_value(CONTROLLER_DEVICE, "interface_ip"),
+    interface_prefix=_require_value(CONTROLLER_DEVICE, "interface_prefix"),
+    interface_desc=_require_value(CONTROLLER_DEVICE, "interface_desc"),
 )
+EDGE_INITIAL_CONFIGS: dict[str, str] = {}
+EDGE_EXTRA_ROUTING_CONFIGS: dict[str, str] = {}
 
-EDGE1_INITIAL_CONFIG = build_edge_initial_config(
-    name="edge1",
-    system_ip=_require_value(EDGE1_DEVICE, "system_ip", "edge1"),
-    site_id=_require_value(EDGE1_DEVICE, "site_id", "edge1"),
-    inet_ip=_require_value(EDGE1_DEVICE, "inet_ip", "edge1"),
-    inet_mask=_require_value(EDGE1_DEVICE, "inet_mask", "edge1"),
-    inet_gw=_require_value(EDGE1_DEVICE, "inet_gw", "edge1"),
-    inet_desc=_require_value(EDGE1_DEVICE, "inet_desc", "edge1"),
-    inet_interface=_require_value(EDGE1_DEVICE, "inet_interface", "edge1"),
-    mpls_ip=_require_value(EDGE1_DEVICE, "mpls_ip", "edge1"),
-    mpls_mask=_require_value(EDGE1_DEVICE, "mpls_mask", "edge1"),
-    mpls_gw=_require_value(EDGE1_DEVICE, "mpls_gw", "edge1"),
-    mpls_desc=_require_value(EDGE1_DEVICE, "mpls_desc", "edge1"),
-    mpls_interface=_require_value(EDGE1_DEVICE, "mpls_interface", "edge1"),
-    loopback100_ip=_require_value(EDGE1_DEVICE, "loopback100_ip", "edge1"),
-    loopback100_mask=_require_value(EDGE1_DEVICE, "loopback100_mask", "edge1"),
-    loopback200_ip=_require_value(EDGE1_DEVICE, "loopback200_ip", "edge1"),
-    loopback200_mask=_require_value(EDGE1_DEVICE, "loopback200_mask", "edge1"),
-)
-
-EDGE1_OSPF_BGP_CONFIG = build_edge_ospf_bgp_config(
-    name="edge1",
-    system_ip=_require_value(EDGE1_DEVICE, "system_ip", "edge1"),
-    vrf_id=_require_value(EDGE1_DEVICE, "vrf_id", "edge1"),
-    ospf_instance=_require_value(EDGE1_DEVICE, "ospf_instance", "edge1"),
-    ospf_area=_require_value(EDGE1_DEVICE, "ospf_area", "edge1"),
-    bgp_local_as=_require_value(EDGE1_DEVICE, "bgp_local_as", "edge1"),
-    bgp_mpls_as=_require_value(EDGE1_DEVICE, "bgp_mpls_as", "edge1"),
-    bgp_inet_as=_require_value(EDGE1_DEVICE, "bgp_inet_as", "edge1"),
-    lan_interface=_require_value(EDGE1_DEVICE, "lan_interface", "edge1"),
-    lan_ip=_require_value(EDGE1_DEVICE, "lan_ip", "edge1"),
-    lan_mask=_require_value(EDGE1_DEVICE, "lan_mask", "edge1"),
-    lan_desc=_require_value(EDGE1_DEVICE, "lan_desc", "edge1"),
-    bgp_neighbor_mpls_ip=_require_value(EDGE1_DEVICE, "bgp_neighbor_mpls_ip", "edge1"),
-    bgp_neighbor_inet_ip=_require_value(EDGE1_DEVICE, "bgp_neighbor_inet_ip", "edge1"),
-)
-
-EDGE2_OSPF_BGP_CONFIG = build_edge_ospf_bgp_config(
-    name="edge2",
-    system_ip=_require_value(EDGE2_DEVICE, "system_ip", "edge2"),
-    vrf_id=_require_value(EDGE2_DEVICE, "vrf_id", "edge2"),
-    ospf_instance=_require_value(EDGE2_DEVICE, "ospf_instance", "edge2"),
-    ospf_area=_require_value(EDGE2_DEVICE, "ospf_area", "edge2"),
-    bgp_local_as=_require_value(EDGE2_DEVICE, "bgp_local_as", "edge2"),
-    bgp_mpls_as=_require_value(EDGE2_DEVICE, "bgp_mpls_as", "edge2"),
-    bgp_inet_as=_require_value(EDGE2_DEVICE, "bgp_inet_as", "edge2"),
-    lan_interface=_require_value(EDGE2_DEVICE, "lan_interface", "edge2"),
-    lan_ip=_require_value(EDGE2_DEVICE, "lan_ip", "edge2"),
-    lan_mask=_require_value(EDGE2_DEVICE, "lan_mask", "edge2"),
-    lan_desc=_require_value(EDGE2_DEVICE, "lan_desc", "edge2"),
-    bgp_neighbor_mpls_ip=_require_value(EDGE2_DEVICE, "bgp_neighbor_mpls_ip", "edge2"),
-    bgp_neighbor_inet_ip=_require_value(EDGE2_DEVICE, "bgp_neighbor_inet_ip", "edge2"),
-)
-
-EDGE3_OSPF_BGP_CONFIG = build_edge_ospf_bgp_config(
-    name="edge3",
-    system_ip=_require_value(EDGE3_DEVICE, "system_ip", "edge3"),
-    vrf_id=_require_value(EDGE3_DEVICE, "vrf_id", "edge3"),
-    ospf_instance=_require_value(EDGE3_DEVICE, "ospf_instance", "edge3"),
-    ospf_area=_require_value(EDGE3_DEVICE, "ospf_area", "edge3"),
-    bgp_local_as=_require_value(EDGE3_DEVICE, "bgp_local_as", "edge3"),
-    bgp_mpls_as=_require_value(EDGE3_DEVICE, "bgp_mpls_as", "edge3"),
-    bgp_inet_as=_require_value(EDGE3_DEVICE, "bgp_inet_as", "edge3"),
-    lan_interface=_require_value(EDGE3_DEVICE, "lan_interface", "edge3"),
-    lan_ip=_require_value(EDGE3_DEVICE, "lan_ip", "edge3"),
-    lan_mask=_require_value(EDGE3_DEVICE, "lan_mask", "edge3"),
-    lan_desc=_require_value(EDGE3_DEVICE, "lan_desc", "edge3"),
-    bgp_neighbor_mpls_ip=_require_value(EDGE3_DEVICE, "bgp_neighbor_mpls_ip", "edge3"),
-    bgp_neighbor_inet_ip=_require_value(EDGE3_DEVICE, "bgp_neighbor_inet_ip", "edge3"),
-)
-
-EDGE2_INITIAL_CONFIG = build_edge_initial_config(
-    name="edge2",
-    system_ip=_require_value(EDGE2_DEVICE, "system_ip", "edge2"),
-    site_id=_require_value(EDGE2_DEVICE, "site_id", "edge2"),
-    inet_ip=_require_value(EDGE2_DEVICE, "inet_ip", "edge2"),
-    inet_mask=_require_value(EDGE2_DEVICE, "inet_mask", "edge2"),
-    inet_gw=_require_value(EDGE2_DEVICE, "inet_gw", "edge2"),
-    inet_desc=_require_value(EDGE2_DEVICE, "inet_desc", "edge2"),
-    inet_interface=_require_value(EDGE2_DEVICE, "inet_interface", "edge2"),
-    mpls_ip=_require_value(EDGE2_DEVICE, "mpls_ip", "edge2"),
-    mpls_mask=_require_value(EDGE2_DEVICE, "mpls_mask", "edge2"),
-    mpls_gw=_require_value(EDGE2_DEVICE, "mpls_gw", "edge2"),
-    mpls_desc=_require_value(EDGE2_DEVICE, "mpls_desc", "edge2"),
-    mpls_interface=_require_value(EDGE2_DEVICE, "mpls_interface", "edge2"),
-    loopback100_ip=_require_value(EDGE2_DEVICE, "loopback100_ip", "edge2"),
-    loopback100_mask=_require_value(EDGE2_DEVICE, "loopback100_mask", "edge2"),
-    loopback200_ip=_require_value(EDGE2_DEVICE, "loopback200_ip", "edge2"),
-    loopback200_mask=_require_value(EDGE2_DEVICE, "loopback200_mask", "edge2"),
-)
-
-EDGE3_INITIAL_CONFIG = build_edge_initial_config(
-    name="edge3",
-    system_ip=_require_value(EDGE3_DEVICE, "system_ip", "edge3"),
-    site_id=_require_value(EDGE3_DEVICE, "site_id", "edge3"),
-    inet_ip=_require_value(EDGE3_DEVICE, "inet_ip", "edge3"),
-    inet_mask=_require_value(EDGE3_DEVICE, "inet_mask", "edge3"),
-    inet_gw=_require_value(EDGE3_DEVICE, "inet_gw", "edge3"),
-    inet_desc=_require_value(EDGE3_DEVICE, "inet_desc", "edge3"),
-    inet_interface=_require_value(EDGE3_DEVICE, "inet_interface", "edge3"),
-    mpls_ip=_require_value(EDGE3_DEVICE, "mpls_ip", "edge3"),
-    mpls_mask=_require_value(EDGE3_DEVICE, "mpls_mask", "edge3"),
-    mpls_gw=_require_value(EDGE3_DEVICE, "mpls_gw", "edge3"),
-    mpls_desc=_require_value(EDGE3_DEVICE, "mpls_desc", "edge3"),
-    mpls_interface=_require_value(EDGE3_DEVICE, "mpls_interface", "edge3"),
-    loopback100_ip=_require_value(EDGE3_DEVICE, "loopback100_ip", "edge3"),
-    loopback100_mask=_require_value(EDGE3_DEVICE, "loopback100_mask", "edge3"),
-    loopback200_ip=_require_value(EDGE3_DEVICE, "loopback200_ip", "edge3"),
-    loopback200_mask=_require_value(EDGE3_DEVICE, "loopback200_mask", "edge3"),
-)
+for edge_name, edge_device in EDGE_DEVICES.items():
+    EDGE_INITIAL_CONFIGS[edge_name] = build_edge_initial_config(
+        name=edge_name,
+        system_ip=_require_value(edge_device, "system_ip"),
+        site_id=_require_value(edge_device, "site_id"),
+        vrf_id=_require_value(edge_device, "vrf_id"),
+        inet_ip=_require_value(edge_device, "inet_ip"),
+        inet_mask=_require_value(edge_device, "inet_mask"),
+        inet_gw=_require_value(edge_device, "inet_gw"),
+        inet_desc=_require_value(edge_device, "inet_desc"),
+        inet_interface=_require_value(edge_device, "inet_interface"),
+        mpls_ip=_require_value(edge_device, "mpls_ip"),
+        mpls_mask=_require_value(edge_device, "mpls_mask"),
+        mpls_gw=_require_value(edge_device, "mpls_gw"),
+        mpls_desc=_require_value(edge_device, "mpls_desc"),
+        mpls_interface=_require_value(edge_device, "mpls_interface"),
+    )
+    EDGE_EXTRA_ROUTING_CONFIGS[edge_name] = build_edge_extra_routing_config(
+        name=edge_name,
+        system_ip=_require_value(edge_device, "system_ip"),
+        vrf_id=_require_value(edge_device, "vrf_id"),
+        ospf_instance=_require_value(edge_device, "ospf_instance"),
+        ospf_area=_require_value(edge_device, "ospf_area"),
+        bgp_local_as=_require_value(edge_device, "bgp_local_as"),
+        bgp_mpls_as=_require_value(edge_device, "bgp_mpls_as"),
+        bgp_inet_as=_require_value(edge_device, "bgp_inet_as"),
+        lan_interface=_require_value(edge_device, "lan_interface"),
+        lan_ip=_require_value(edge_device, "lan_ip"),
+        lan_mask=_require_value(edge_device, "lan_mask"),
+        lan_desc=_require_value(edge_device, "lan_desc"),
+        lan2_interface=_optional_value(edge_device, "lan2_interface", None),
+        lan2_ip=_optional_value(edge_device, "lan2_ip", None),
+        lan2_mask=_optional_value(edge_device, "lan2_mask", None),
+        lan2_desc=_optional_value(edge_device, "lan2_desc", None),
+        mpls_gw=_require_value(edge_device, "mpls_gw"),
+        inet_gw=_require_value(edge_device, "inet_gw"),
+    )
 
 # =============================================================================
 # Configuration Instances
 # =============================================================================
 manager = ManagerConfig(
-    mgmt_ip=_require_value(MANAGER_DEVICE, "mgmt_ip", "manager"),
+    mgmt_ip=_require_value(MANAGER_DEVICE, "mgmt_ip"),
     country=_optional_value(MANAGER_DEVICE, "country", "FI"),
     state=_optional_value(MANAGER_DEVICE, "state", "Finland"),
     city=_optional_value(MANAGER_DEVICE, "city", "Helsinki"),
@@ -593,28 +523,20 @@ manager = ManagerConfig(
 )
 
 controller = ControllerConfig(
-    mgmt_ip=_require_value(CONTROLLER_DEVICE, "mgmt_ip", "controller"),
+    mgmt_ip=_require_value(CONTROLLER_DEVICE, "mgmt_ip"),
     csr_file=_optional_value(CONTROLLER_DEVICE, "csr_file", "vsmart_csr"),
     initial_config=CONTROLLER_INITIAL_CONFIG,
 )
 
 validator = ValidatorConfig(
-    mgmt_ip=_require_value(VALIDATOR_DEVICE, "mgmt_ip", "validator"),
+    mgmt_ip=_require_value(VALIDATOR_DEVICE, "mgmt_ip"),
     csr_file=_optional_value(VALIDATOR_DEVICE, "csr_file", "vbond_csr"),
     initial_config=VALIDATOR_INITIAL_CONFIG,
 )
-
-edge1 = EdgeConfig(
-    mgmt_ip=_require_value(EDGE1_DEVICE, "mgmt_ip", "edge1"),
-    initial_config=EDGE1_INITIAL_CONFIG,
-)
-
-edge2 = EdgeConfig(
-    mgmt_ip=_require_value(EDGE2_DEVICE, "mgmt_ip", "edge2"),
-    initial_config=EDGE2_INITIAL_CONFIG,
-)
-
-edge3 = EdgeConfig(
-    mgmt_ip=_require_value(EDGE3_DEVICE, "mgmt_ip", "edge3"),
-    initial_config=EDGE3_INITIAL_CONFIG,
-)
+EDGES: dict[str, EdgeConfig] = {
+    edge_name: EdgeConfig(
+        mgmt_ip=_require_value(edge_device, "mgmt_ip"),
+        initial_config=EDGE_INITIAL_CONFIGS[edge_name],
+    )
+    for edge_name, edge_device in EDGE_DEVICES.items()
+}

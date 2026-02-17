@@ -99,12 +99,17 @@ class Output:
         self,
         message: str,
         seconds: int,
-        interval: float = 0.2,
+        interval: float = 0.5,
         log: bool = False,
     ) -> None:
         """Display a simple spinner/countdown without spamming logs."""
         if log:
             self.logger.info(message)
+        if not sys.stdout.isatty():
+            print(f"{SYMBOLS['wait']} {message} ({seconds}s)")
+            time.sleep(max(0, seconds))
+            print(f"{SYMBOLS['wait']} {message} (done)")
+            return
         spinner = "|/-\\"
         end = time.time() + max(0, seconds)
         i = 0

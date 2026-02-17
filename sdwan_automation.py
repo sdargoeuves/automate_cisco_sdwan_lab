@@ -54,7 +54,7 @@ def main():
         "-v",
         "--verbose",
         action="store_true",
-        help="Show detailed device actions and file contents",
+        help="Enable verbose logging output",
     )
     manager_parser.add_argument(
         "--first-boot",
@@ -82,7 +82,7 @@ def main():
         "-v",
         "--verbose",
         action="store_true",
-        help="Show detailed device actions and file contents",
+        help="Enable verbose logging output",
     )
     validator_parser.add_argument(
         "--first-boot",
@@ -110,7 +110,7 @@ def main():
         "-v",
         "--verbose",
         action="store_true",
-        help="Show detailed device actions and file contents",
+        help="Enable verbose logging output",
     )
     controller_parser.add_argument(
         "--first-boot",
@@ -136,13 +136,13 @@ def main():
     edges_parser.set_defaults(_parser=edges_parser)
     edges_parser.add_argument(
         "targets",
-        help="Comma-separated edge names (edge1,edge2) or 'all'",
+        help="Comma-separated edge names (keys under devices.edges) or 'all'",
     )
     edges_parser.add_argument(
         "-v",
         "--verbose",
         action="store_true",
-        help="Show detailed device actions and file contents",
+        help="Enable verbose logging output",
     )
     edges_parser.add_argument(
         "--first-boot",
@@ -164,9 +164,10 @@ def main():
         help="Configuration file to push to edges",
     )
     edges_parser.add_argument(
-        "--ospf-bgp",
+        "--extra-routing",
         action="store_true",
-        help="Push edge OSPF/BGP configuration",
+        dest="extra_routing",
+        help="Push edge routing configuration",
     )
 
     all_parser = subparsers.add_parser(
@@ -176,7 +177,7 @@ def main():
         "-v",
         "--verbose",
         action="store_true",
-        help="Show detailed device actions and file contents",
+        help="Enable verbose logging output",
     )
 
     show_parser = subparsers.add_parser("show", help="Show Manager status tables")
@@ -190,7 +191,7 @@ def main():
         "-v",
         "--verbose",
         action="store_true",
-        help="Show detailed device actions and file contents",
+        help="Enable verbose logging output",
     )
 
     sdk_parser = subparsers.add_parser(
@@ -206,7 +207,7 @@ def main():
         "-v",
         "--verbose",
         action="store_true",
-        help="Show detailed device actions and file contents",
+        help="Enable verbose logging output",
     )
 
     args = parser.parse_args()
@@ -248,13 +249,9 @@ def main():
             cert=True,
         )
         show_controller_status(settings.manager, out=out)
-        edge_configs = [
-            value
-            for value in vars(settings).values()
-            if isinstance(value, settings.EdgeConfig)
-        ]
+        edge_configs = list(settings.EDGES.values())
         if not edge_configs:
-            out.warning("No edge configs found in utils/sdwan_config.py.")
+            out.warning("No edges defined in sdwan_variables.yml")
         else:
             run_edges_automation(
                 edge_configs,
@@ -279,7 +276,7 @@ def main():
             f"first_boot={args.first_boot} "
             f"initial_config={args.initial_config} "
             f"cert={args.cert} "
-            f"ospf_bgp={args.ospf_bgp} "
+            f"extra_routing={args.extra_routing} "
             f"config_file={getattr(args, 'config_file', None)}"
         )
     else:
@@ -301,7 +298,13 @@ def main():
     if args.component == "edges":
         has_config_file = hasattr(args, "config_file") and args.config_file
         if not any(
-            [args.first_boot, args.cert, args.initial_config, has_config_file, args.ospf_bgp]
+            [
+                args.first_boot,
+                args.cert,
+                args.initial_config,
+                has_config_file,
+                args.extra_routing,
+            ]
         ):
             args._parser.print_help()
             sys.exit(0)
@@ -315,18 +318,14 @@ def main():
             sys.exit(1)
 
         if len(targets) == 1 and targets[0].lower() == "all":
-            edge_configs = [
-                value
-                for name, value in vars(settings).items()
-                if name.startswith("edge") and isinstance(value, settings.EdgeConfig)
-            ]
+            edge_configs = list(settings.EDGES.values())
             if not edge_configs:
-                out.error("No edge configs found in utils/sdwan_config.py.")
+                out.error("No edges defined in sdwan_variables.yml")
                 sys.exit(1)
         else:
             edge_configs = []
             for target in targets:
-                config = getattr(settings, target, None)
+                config = settings.EDGES.get(target)
                 if config is None:
                     out.error(f"Unknown edge target: {target}")
                     sys.exit(1)
@@ -337,7 +336,7 @@ def main():
             initial_config=args.initial_config,
             config_file=args.config_file,
             cert=args.cert,
-            ospf_bgp=args.ospf_bgp,
+            extra_routing=args.extra_routing,
         )
         out.header("Edges Complete")
         out.success("Edge automation finished")

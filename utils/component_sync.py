@@ -48,15 +48,15 @@ def reboot_out_of_sync_components(
     out.warning(
         "Components remain out of sync; a reboot might help, code is ready but not applied at the moment to do this automatically."
     )
-    # for item in still_out_of_sync:
-    #     system_ip = item.get("system-ip")
-    #     if not system_ip:
-    #         out.warning(
-    #             f"Skipping reboot for {_format_component_label(item)}: missing system-ip."
-    #         )
-    #         continue
-    #     reboot_device(
-    #         system_ip,
-    #         settings.USERNAME,
-    #         settings.PASSWORD,
-    #     )
+    for item in still_out_of_sync:
+        system_ip = item.get("system-ip")
+        if not system_ip:
+            out.warning(
+                f"Skipping reboot for {_format_component_label(item)}: missing system-ip."
+            )
+            continue
+        reboot_device(
+            system_ip,
+            settings.USERNAME,
+            settings.UPDATED_PASSWORD,
+        )
