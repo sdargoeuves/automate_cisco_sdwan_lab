@@ -17,7 +17,7 @@ tasks and the Sastre SDK for Manager API interactions.
 
 ## Requirements
 
-- Python 3.10+
+- Python 3.11+
 - Network reachability to Manager/Validator/Controller management IPs
 - Manager API reachable on HTTPS (default port 443)
 - Python deps: `netmiko`, `requests`, `cisco-sdwan`, `PyYAML`
@@ -125,10 +125,10 @@ Run from the `automate_sdwan` directory.
 ### Manager|Validator|Controller
 
 ```bash
-./sdwan_automation.py [manager|validator|controller] --first-boot
-./sdwan_automation.py [manager|validator|controller] --cert
-./sdwan_automation.py [manager|validator|controller] --initial-config
-./sdwan_automation.py [manager|validator|controller] --config-file myconfig.txt
+python sdwan_automation.py [manager|validator|controller] --first-boot
+python sdwan_automation.py [manager|validator|controller] --cert
+python sdwan_automation.py [manager|validator|controller] --initial-config
+python sdwan_automation.py [manager|validator|controller] --config-file myconfig.txt
 ```
 
 ### Edges (cEdge)
@@ -136,12 +136,12 @@ Run from the `automate_sdwan` directory.
 Targets are required and can be a comma-separated list or `all`:
 
 ```bash
-./sdwan_automation.py edges edge1x01 --first-boot
-./sdwan_automation.py edges edge1x01,edge2x01 --initial-config
-./sdwan_automation.py edges edge3x01 --cert
-./sdwan_automation.py edges all --cert
-./sdwan_automation.py edges edge2x01 --config-file myconfig.txt
-./sdwan_automation.py edges edge1x01 --extra-routing
+python sdwan_automation.py edges edge1x01 --first-boot
+python sdwan_automation.py edges edge1x01,edge2x01 --initial-config
+python sdwan_automation.py edges edge3x01 --cert
+python sdwan_automation.py edges all --cert
+python sdwan_automation.py edges edge2x01 --config-file myconfig.txt
+python sdwan_automation.py edges edge1x01 --extra-routing
 ```
 
 Edge options:
@@ -155,13 +155,13 @@ Edge options:
 ### All Components (First-Boot)
 
 ```bash
-./sdwan_automation.py all
+python sdwan_automation.py all
 ```
 
 ### Show Devices Status
 
 ```bash
-./sdwan_automation.py show devices
+python sdwan_automation.py show devices
 ```
 
 ### SDK passthrough
@@ -169,8 +169,8 @@ Edge options:
 Run any Sastre SDK CLI command without retyping credentials:
 
 ```bash
-./sdwan_automation.py sdk show dev
-./sdwan_automation.py sdk backup all --workdir backups
+python sdwan_automation.py sdk show dev
+python sdwan_automation.py sdk backup all --workdir backups
 ```
 
 Add `-v` to any command for verbose console output.

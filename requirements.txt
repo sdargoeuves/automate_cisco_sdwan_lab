@@ -1,4 +1,4 @@
-netmiko # tests were done with 4.6.0
-requests # tests were done with 2.32.5
-cisco-sdwan # Sastre SDK (tested via venv on Python 3.9+)
-PyYAML
+netmiko>=4.6.0
+requests>=2.32.5
+cisco-sdwan>=1.0.0
+PyYAML>=6.0

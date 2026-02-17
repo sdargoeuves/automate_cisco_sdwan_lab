@@ -54,7 +54,7 @@ def main():
         "-v",
         "--verbose",
         action="store_true",
-        help="Show detailed device actions and file contents",
+        help="Enable verbose logging output",
     )
     manager_parser.add_argument(
         "--first-boot",
@@ -82,7 +82,7 @@ def main():
         "-v",
         "--verbose",
         action="store_true",
-        help="Show detailed device actions and file contents",
+        help="Enable verbose logging output",
     )
     validator_parser.add_argument(
         "--first-boot",
@@ -110,7 +110,7 @@ def main():
         "-v",
         "--verbose",
         action="store_true",
-        help="Show detailed device actions and file contents",
+        help="Enable verbose logging output",
     )
     controller_parser.add_argument(
         "--first-boot",
@@ -142,7 +142,7 @@ def main():
         "-v",
         "--verbose",
         action="store_true",
-        help="Show detailed device actions and file contents",
+        help="Enable verbose logging output",
     )
     edges_parser.add_argument(
         "--first-boot",
@@ -177,7 +177,7 @@ def main():
         "-v",
         "--verbose",
         action="store_true",
-        help="Show detailed device actions and file contents",
+        help="Enable verbose logging output",
     )
 
     show_parser = subparsers.add_parser("show", help="Show Manager status tables")
@@ -191,7 +191,7 @@ def main():
         "-v",
         "--verbose",
         action="store_true",
-        help="Show detailed device actions and file contents",
+        help="Enable verbose logging output",
     )
 
     sdk_parser = subparsers.add_parser(
@@ -207,7 +207,7 @@ def main():
         "-v",
         "--verbose",
         action="store_true",
-        help="Show detailed device actions and file contents",
+        help="Enable verbose logging output",
     )
 
     args = parser.parse_args()
@@ -251,7 +251,7 @@ def main():
         show_controller_status(settings.manager, out=out)
         edge_configs = list(settings.EDGES.values())
         if not edge_configs:
-            out.warning("No edge configs found in utils/sdwan_config.py.")
+            out.warning("No edges defined in sdwan_variables.yml")
         else:
             run_edges_automation(
                 edge_configs,
@@ -320,7 +320,7 @@ def main():
         if len(targets) == 1 and targets[0].lower() == "all":
             edge_configs = list(settings.EDGES.values())
             if not edge_configs:
-                out.error("No edge configs found in utils/sdwan_config.py.")
+                out.error("No edges defined in sdwan_variables.yml")
                 sys.exit(1)
         else:
             edge_configs = []

@@ -217,12 +217,26 @@ def run_edge_automation(
             read_timeout=settings.NETMIKO_INCREASED_READ_TIMEOUT,
         )
     else:
+        # Try configured password first, then default if it fails
         net_connect = connect_to_device(
             device_type,
             config.mgmt_ip,
             config.username,
             config.password,
+            exit_on_failure=False,
         )
+
+        if not net_connect:
+            out.warning(
+                f"Configured password failed for {label}, trying default password..."
+            )
+            net_connect = connect_to_device(
+                device_type,
+                config.mgmt_ip,
+                config.username,
+                config.default_password,
+                exit_on_failure=True,  # Exit if both passwords fail
+            )
 
     if config_file:
         out.header(f"EDGE - {label}: Config File")
