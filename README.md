@@ -49,17 +49,17 @@ Use the existing file as a template. The keys under `devices` are the source of
 truth for what the automation will manage.
 
 1) Set shared/global values
-- `shared`: org name, usernames, passwords, API port
-- `timing`: wait/retry timers
-- `certificates`: file names for RSA key, root cert, signed cert
+   - `shared`: org name, usernames, passwords, API port
+   - `timing`: wait/retry timers
+   - `certificates`: file names for RSA key, root cert, signed cert
 
 2) Define the control-plane devices
-- `devices.manager|validator|controller`: management IPs and the first-boot
-  CLI inputs (system IP, site ID, gateway, interface details)
+   - `devices.manager|validator|controller`: management IPs and the first-boot
+     CLI inputs (system IP, site ID, gateway, interface details)
 
 3) Define edges using your real device names
-- `devices.edges.<edge_name>`: each edge is keyed by its real name. Those keys
-  are what you pass to the CLI (`./sdwan_automation.py edges <edge_name> ...`).
+   - `devices.edges.<edge_name>`: each edge is keyed by its real name. Those keys
+     are what you pass to the CLI (`./sdwan_automation.py edges <edge_name> ...`).
 
 Example (edges):
 
@@ -93,6 +93,7 @@ devices:
 ```
 
 Notes:
+
 - Optional `lan2_*` keys can be omitted unless you want a second LAN interface.
 - If a required key is missing, the script exits with a clear error and the
   edge name that failed.
