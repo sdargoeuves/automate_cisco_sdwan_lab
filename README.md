@@ -32,6 +32,15 @@ pip install -r requirements.txt
 
 ## Configuration
 
+By default the script reads `sdwan_variables.yml` in the same directory. You can
+point to a different file with `--variables-file` (must come **before** the
+subcommand):
+
+```bash
+python sdwan_automation.py --variables-file /path/to/other_sdwan_variables.yml manager --first-boot
+python sdwan_automation.py --variables-file /path/to/other_sdwan_variables.yml all
+```
+
 Edit `sdwan_variables.yml` to match your lab:
 
 - `shared`, `timing`, and `network` values
@@ -122,6 +131,15 @@ The defaults assume:
 ## Usage
 
 Run from the `automate_sdwan` directory.
+
+### Custom variables file
+
+Use `--variables-file` before the subcommand to load a different YAML file:
+
+```bash
+python sdwan_automation.py --variables-file /path/to/other_sdwan_variables.yml manager --first-boot
+python sdwan_automation.py --variables-file /path/to/other_sdwan_variables.yml edges all --first-boot
+```
 
 ### Manager|Validator|Controller
 

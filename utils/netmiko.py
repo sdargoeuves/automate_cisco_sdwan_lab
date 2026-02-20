@@ -248,9 +248,9 @@ def bootstrap_initial_config(
     if initial_config_empty:
         out.warning(f"{device_label} initial config is empty; skipping.")
 
-    retry_wait_seconds = 120
-    retry_max_seconds = 900
-    lockout_retry_interval = 180  # Retry every 3 minutes when locked
+    retry_wait_seconds = settings.NETMIKO_CONNECT_RETRY_WAIT_SECONDS
+    retry_max_seconds = settings.NETMIKO_CONNECT_RETRY_MAX_SECONDS
+    lockout_retry_interval = settings.NETMIKO_CONNECT_LOCKOUT_RETRY_INTERVAL
     started = time.monotonic()
     attempt = 0
     last_error_summary = ""
@@ -297,7 +297,7 @@ def bootstrap_initial_config(
                 if not lockout_detected:
                     lockout_detected = True
                     # Extend max retry time to allow for lockout period
-                    retry_max_seconds = max(retry_max_seconds, 900)  # At least 15 minutes
+                    retry_max_seconds = max(retry_max_seconds, settings.NETMIKO_CONNECT_RETRY_MAX_SECONDS)
                     out.warning(
                         f"Both passwords failed. Assuming account lockout. "
                         f"Will retry every {lockout_retry_interval}s until unlocked."
@@ -397,7 +397,7 @@ def bootstrap_initial_config(
                 if is_locked:
                     if not lockout_detected:
                         lockout_detected = True
-                        retry_max_seconds = max(retry_max_seconds, 900)  # At least 15 minutes
+                        retry_max_seconds = max(retry_max_seconds, settings.NETMIKO_CONNECT_RETRY_MAX_SECONDS)
                         out.warning(
                             f"Both passwords failed. Assuming account lockout. "
                             f"Will retry every {lockout_retry_interval}s until unlocked."

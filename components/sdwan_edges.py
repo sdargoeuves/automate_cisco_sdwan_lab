@@ -38,8 +38,10 @@ def _parse_payg_activity(activity_list: str) -> list[dict]:
 def generate_payg_licenses(
     manager_config,
     count: int,
-    wait_seconds: int = settings.WAIT_AFTER_GENERATING_PAYG_LICENSE,
+    wait_seconds: int = None,
 ) -> list[dict]:
+    if wait_seconds is None:
+        wait_seconds = settings.WAIT_AFTER_GENERATING_PAYG_LICENSE
     out.header(f"EDGE - Generate PAYG Licenses")
     try:
         response = sdk_call_json(
@@ -101,9 +103,13 @@ def _install_root_cert(net_connect, use_new_roots: bool = False) -> None:
 
 def _wait_for_edge_cert(
     net_connect,
-    poll_interval_seconds: int = settings.EDGE_CERT_POLL_INTERVAL_SECONDS,
-    timeout_seconds: int = settings.EDGE_CERT_POLL_TIMEOUT_SECONDS,
+    poll_interval_seconds: int = None,
+    timeout_seconds: int = None,
 ) -> bool:
+    if poll_interval_seconds is None:
+        poll_interval_seconds = settings.EDGE_CERT_POLL_INTERVAL_SECONDS
+    if timeout_seconds is None:
+        timeout_seconds = settings.EDGE_CERT_POLL_TIMEOUT_SECONDS
     out.step(
         "Waiting for root CA chain to be installed "
         f"(poll {poll_interval_seconds}s, timeout {timeout_seconds}s)..."

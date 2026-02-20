@@ -11,6 +11,9 @@ Usage:
     ./sdwan_automation.py [manager, validator, controller] --config-file myconfig.txt
     ./sdwan_automation.py [manager, validator, controller] --cert --config-file additional.txt
 
+    # Use a custom variables file (must come before the subcommand):
+    ./sdwan_automation.py --variables-file /path/to/other_sdwan_variables.yml manager --first-boot
+
     # Run first-boot on all components:
     ./sdwan_automation.py all
 
@@ -45,6 +48,15 @@ def main():
     parser = argparse.ArgumentParser(
         description="Cisco SD-WAN Certificate Automation",
         formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    parser.add_argument(
+        "--variables-file",
+        metavar="FILE",
+        default=None,
+        help=(
+            "Path to the variables YAML file "
+            f"(default: {settings.DEFAULT_VARIABLES_PATH})"
+        ),
     )
     subparsers = parser.add_subparsers(dest="component")
 
@@ -217,6 +229,7 @@ def main():
         parser.print_help()
         sys.exit(0)
 
+    settings.load(args.variables_file)
     setup_logging(args.verbose)
     out = Output(__name__)
 
