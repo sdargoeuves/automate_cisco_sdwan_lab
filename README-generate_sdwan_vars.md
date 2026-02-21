@@ -28,14 +28,14 @@ current working directory.
 
 ### Options
 
-| Argument | Default | Description |
-| --- | --- | --- |
-| `--base` | `<script dir>/sdwan_variables-base.yml` | Base YAML with static values |
-| `--host-vars` | `<script dir>/host_vars` | Path to the host_vars directory |
-| `--output` | `sdwan_variables-test.yml` in current directory | Output file (folder + filename) |
+| Short | Long | Default | Description |
+| --- | --- | --- | --- |
+| `-b` | `--base` | `<script dir>/sdwan_variables-base.yml` | Base YAML with static values |
+| `-t` | `--host-vars` | `<script dir>/host_vars` | Path to the host_vars (topology) directory |
+| `-o` | `--output` | `sdwan_variables-test.yml` in current directory | Output file (folder + filename) |
 
-`--base` and `--host-vars` default to paths relative to the script itself, so
-they work correctly regardless of where you run the script from.
+`-b`/`--base` and `-t`/`--host-vars` default to paths relative to the script
+itself, so they work correctly regardless of where you run the script from.
 
 `--output` defaults to the current working directory, so the generated file
 lands wherever you are when you run the script.
@@ -135,8 +135,21 @@ These are not present in the netlab topology and must be set manually:
 
 ```text
 cisco-sdwan-lab/
-├── generate_sdwan_vars.py        # this script
-├── sdwan_variables-base.yml      # static values — edit this for your lab
+├── host_vars/                        # netlab-generated topology data (input)
+│   └── <device>/topology.json
 └── automate_sdwan/
-    └── sdwan_variables-test.yml  # example generated output
+    ├── generate_sdwan_vars.py        # this script
+    ├── sdwan_variables-base.yml      # static values — edit this for your lab
+    └── sdwan_variables-test.yml      # generated output — do not edit manually
+```
+
+Note: since `host_vars/` lives at the repo root (one level up), you need to
+pass `--host-vars` explicitly:
+
+```bash
+# from the automate_sdwan directory
+python3 generate_sdwan_vars.py --host-vars ../host_vars
+
+# or with an absolute path from anywhere
+python3 /path/to/automate_sdwan/generate_sdwan_vars.py --host-vars /path/to/host_vars
 ```

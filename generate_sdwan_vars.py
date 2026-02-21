@@ -162,17 +162,17 @@ def main():
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
     parser.add_argument(
-        "--base",
+        "-b", "--base",
         default=HERE / "sdwan_variables-base.yml",
         help="Base YAML with static values",
     )
     parser.add_argument(
-        "--host-vars",
+        "-t", "--host-vars",
         default=HERE / "host_vars",
-        help="Path to the host_vars directory",
+        help="Path to the host_vars (topology) directory",
     )
     parser.add_argument(
-        "--output",
+        "-o", "--output",
         default="sdwan_variables-test.yml",
         help="Output YAML file (default: sdwan_variables-test.yml in current directory)",
     )
