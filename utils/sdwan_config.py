@@ -350,45 +350,27 @@ def build_edge_extra_routing_config(
     bgp_local_as: int,
     bgp_mpls_as: int,
     bgp_inet_as: int,
-    lan_interface: str,
-    lan_ip: str,
-    lan_mask: str,
-    lan_desc: str,
+    lan_interfaces: list,
     mpls_gw: str,
     inet_gw: str,
-    lan2_interface: str = None,
-    lan2_ip: str = None,
-    lan2_mask: str = None,
-    lan2_desc: str = None,
 ) -> str:
-    second_lan_interface = ""
-    if lan2_interface and lan2_ip and lan2_mask and lan2_desc:
-        second_lan_interface = f"""
-
-interface {lan2_interface}
+    lan_blocks = ""
+    for lan in lan_interfaces:
+        lan_blocks += f"""
+interface {lan["lan_interface"]}
  vrf forwarding {vrf_id}
- ip address {lan2_ip} {lan2_mask}
- description "{lan2_desc}"
+ ip address {lan["lan_ip"]} {lan["lan_mask"]}
+ description "{lan["lan_desc"]}"
  ip ospf network point-to-point
  ip ospf {ospf_instance} area {ospf_area}
  no shut
-
 """
 
     return f"""
-
 router ospf {ospf_instance} vrf {vrf_id}
  redistribute omp
  router-id {system_ip}
-
-interface {lan_interface}
- vrf forwarding {vrf_id}
- ip address {lan_ip} {lan_mask}
- description "{lan_desc}"
- ip ospf network point-to-point
- ip ospf {ospf_instance} area {ospf_area}
- no shut
-
+{lan_blocks}
 router bgp {bgp_local_as}
  bgp log-neighbor-changes
  neighbor {mpls_gw} remote-as {bgp_mpls_as}
@@ -401,7 +383,7 @@ router bgp {bgp_local_as}
   neighbor {inet_gw} activate
  exit-address-family
 !
-""" + second_lan_interface
+"""
 
 
 # =============================================================================
@@ -584,14 +566,7 @@ def load(variables_path=None) -> None:
             bgp_local_as=_require_value(edge_device, "bgp_local_as"),
             bgp_mpls_as=_require_value(edge_device, "bgp_mpls_as"),
             bgp_inet_as=_require_value(edge_device, "bgp_inet_as"),
-            lan_interface=_require_value(edge_device, "lan_interface"),
-            lan_ip=_require_value(edge_device, "lan_ip"),
-            lan_mask=_require_value(edge_device, "lan_mask"),
-            lan_desc=_require_value(edge_device, "lan_desc"),
-            lan2_interface=_optional_value(edge_device, "lan2_interface", None),
-            lan2_ip=_optional_value(edge_device, "lan2_ip", None),
-            lan2_mask=_optional_value(edge_device, "lan2_mask", None),
-            lan2_desc=_optional_value(edge_device, "lan2_desc", None),
+            lan_interfaces=_require_value(edge_device, "lan_interfaces"),
             mpls_gw=_require_value(edge_device, "mpls_gw"),
             inet_gw=_require_value(edge_device, "inet_gw"),
         )

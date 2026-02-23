@@ -1,15 +1,12 @@
-#!/usr/bin/env python3
 """
-generate_sdwan_vars.py
+utils/generate_sdwan_vars.py
 
 Generates an sdwan_variables YAML file by combining:
   - sdwan_variables-base.yml  (static values you maintain manually)
   - host_vars/<device>/topology.json  (dynamic values produced by netlab)
 
-Usage:
-  python generate_sdwan_vars.py
-  python generate_sdwan_vars.py --output automate_sdwan/sdwan_variables-test.yml
-  python generate_sdwan_vars.py --base sdwan_variables-base.yml --host-vars host_vars
+Invoked via:
+  python sdwan_automation.py generate [options]
 
 Device identification:
   sdwan-manager    → devices.manager   (clab kind: linux, type: manager)
@@ -19,9 +16,9 @@ Device identification:
   everything else  → skipped
 """
 
-import argparse
 import ipaddress
 import json
+import re
 import sys
 from pathlib import Path
 
@@ -60,7 +57,10 @@ def eth_to_ge(ifname: str) -> str:
 
 
 def fix_desc(link_name: str) -> str:
-    """Replace ' -> ' with ' to ' in netlab link names."""
+    """
+    Replace ' -> ' with ' to ' in netlab link names.
+    As there was an issue with the Edge devices with the '->' in the description
+    """
     return link_name.replace(" -> ", " to ")
 
 
@@ -90,27 +90,31 @@ def process_validator(topo: dict) -> dict:
     return result
 
 
-def process_edge(topo: dict) -> dict:
-    """Extract dynamic fields for a C8000v edge device."""
+def process_edge(topo: dict, mpls_node: str = "mpls", inet_node: str = "inet") -> dict:
+    """Extract dynamic fields for a C8000v edge device.
+
+    mpls_node / inet_node are regex patterns matched against neighbor node names.
+    Any interface whose neighbor does not match either pattern is treated as LAN.
+    """
     result = {
         "mgmt_ip": topo["mgmt"]["ipv4"],
         "system_ip": topo["mgmt"]["ipv4"],
         "bgp_local_as": topo["bgp"]["as"],
     }
 
-    # BGP neighbor ASNs (identify by neighbor node name)
+    # BGP neighbor ASNs (regex match against neighbor node name)
     for nbr in topo["bgp"]["neighbors"]:
-        if nbr["name"] == "mpls0":
+        if re.search(mpls_node, nbr["name"]):
             result["bgp_mpls_as"] = nbr["as"]
-        elif nbr["name"] == "inet0":
+        elif re.search(inet_node, nbr["name"]):
             result["bgp_inet_as"] = nbr["as"]
 
-    # Classify data-plane interfaces by neighbor node name
+    # Classify data-plane interfaces by neighbor node name (regex match)
     lan_ifaces = []
     for iface in topo["interfaces"]:
         neighbor_nodes = [n["node"] for n in iface.get("neighbors", [])]
 
-        if "mpls0" in neighbor_nodes:
+        if any(re.search(mpls_node, node) for node in neighbor_nodes):
             ip, _, mask = split_cidr(iface["ipv4"])
             gw = strip_prefix(iface["neighbors"][0]["ipv4"])
             result.update({
@@ -121,7 +125,7 @@ def process_edge(topo: dict) -> dict:
                 "mpls_desc": fix_desc(iface["name"]),
             })
 
-        elif "inet0" in neighbor_nodes:
+        elif any(re.search(inet_node, node) for node in neighbor_nodes):
             ip, _, mask = split_cidr(iface["ipv4"])
             gw = strip_prefix(iface["neighbors"][0]["ipv4"])
             result.update({
@@ -135,52 +139,31 @@ def process_edge(topo: dict) -> dict:
         else:
             lan_ifaces.append(iface)
 
-    # LAN interfaces — lan, lan2, lan3, ... depending on how many there are
-    for i, iface in enumerate(lan_ifaces):
-        key = "lan" if i == 0 else f"lan{i + 1}"
+    # LAN interfaces — collected as a list, supports any number of LANs
+    lan_interfaces = []
+    for iface in lan_ifaces:
         ip, _, mask = split_cidr(iface["ipv4"])
         gw = strip_prefix(iface["neighbors"][0]["ipv4"])
-        result.update({
-            f"{key}_interface": iface["ifname"],
-            f"{key}_ip": ip,
-            f"{key}_mask": mask,
-            f"{key}_gw": gw,
-            f"{key}_desc": fix_desc(iface["name"]),
+        lan_interfaces.append({
+            "lan_interface": iface["ifname"],
+            "lan_ip": ip,
+            "lan_mask": mask,
+            "lan_gw": gw,
+            "lan_desc": fix_desc(iface["name"]),
         })
+    result["lan_interfaces"] = lan_interfaces
 
     return result
 
 
 # ── Main ──────────────────────────────────────────────────────────────────────
 
-HERE = Path(__file__).parent
+# Parent of utils/ = automate_sdwan/ — where base YAML and host_vars live by default
+HERE = Path(__file__).parent.parent
 
 
-def main():
-    parser = argparse.ArgumentParser(
-        description="Generate an sdwan_variables YAML from netlab topology files.",
-        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
-    )
-    parser.add_argument(
-        "-b", "--base",
-        default=HERE / "sdwan_variables-base.yml",
-        help="Base YAML with static values",
-    )
-    parser.add_argument(
-        "-t", "--host-vars",
-        default=HERE / "host_vars",
-        help="Path to the host_vars (topology) directory",
-    )
-    parser.add_argument(
-        "-o", "--output",
-        default="sdwan_variables-test.yml",
-        help="Output YAML file (default: sdwan_variables-test.yml in current directory)",
-    )
-    args = parser.parse_args()
-
-    base_path = Path(args.base)
-    host_vars_path = Path(args.host_vars)
-    output_path = Path(args.output)
+def run(base_path: Path, host_vars_path: Path, output_path: Path) -> None:
+    """Generate sdwan_variables YAML by merging base YAML with topology files."""
 
     # Load base YAML ──────────────────────────────────────────────────────────
     if not base_path.exists():
@@ -193,8 +176,14 @@ def main():
     config.setdefault("devices", {})
     config["devices"].setdefault("edges", {})
 
+    # Read generator config — stripped before writing output
+    gen_cfg = config.pop("generate", {})
+    mpls_node = gen_cfg.get("mpls_node", "mpls")
+    inet_node = gen_cfg.get("inet_node", "inet")
+
     # Process topology files ──────────────────────────────────────────────────
     print(f"Scanning {host_vars_path}/*/topology.json ...")
+    print(f"  Transport node matching: MPLS='{mpls_node}', inet='{inet_node}' (regex)")
 
     for topo_file in sorted(host_vars_path.glob("*/topology.json")):
         device_name = topo_file.parent.name
@@ -232,7 +221,7 @@ def main():
                 print(f"  [ok] {device_name} → devices.validator")
 
             elif kind == "cisco_c8000v":
-                dynamic = process_edge(topo)
+                dynamic = process_edge(topo, mpls_node=mpls_node, inet_node=inet_node)
                 base_edge = config["devices"]["edges"].get(device_name, {})
                 config["devices"]["edges"][device_name] = {
                     **dynamic,
@@ -259,7 +248,3 @@ def main():
         )
 
     print(f"\nWritten → {output_path}")
-
-
-if __name__ == "__main__":
-    main()
