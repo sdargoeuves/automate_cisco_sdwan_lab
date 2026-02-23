@@ -5,8 +5,10 @@ Edge (vEdge/C8000V) automation workflow:
 - Copy root cert via SCP, install it, and activate using PAYG token.
 """
 
+import random
 import re
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Optional
 
 from utils import sdwan_config as settings
@@ -38,8 +40,10 @@ def _parse_payg_activity(activity_list: str) -> list[dict]:
 def generate_payg_licenses(
     manager_config,
     count: int,
-    wait_seconds: int = settings.WAIT_AFTER_GENERATING_PAYG_LICENSE,
+    wait_seconds: int = None,
 ) -> list[dict]:
+    if wait_seconds is None:
+        wait_seconds = settings.WAIT_AFTER_GENERATING_PAYG_LICENSE
     out.header(f"EDGE - Generate PAYG Licenses")
     try:
         response = sdk_call_json(
@@ -101,9 +105,13 @@ def _install_root_cert(net_connect, use_new_roots: bool = False) -> None:
 
 def _wait_for_edge_cert(
     net_connect,
-    poll_interval_seconds: int = settings.EDGE_CERT_POLL_INTERVAL_SECONDS,
-    timeout_seconds: int = settings.EDGE_CERT_POLL_TIMEOUT_SECONDS,
+    poll_interval_seconds: int = None,
+    timeout_seconds: int = None,
 ) -> bool:
+    if poll_interval_seconds is None:
+        poll_interval_seconds = settings.EDGE_CERT_POLL_INTERVAL_SECONDS
+    if timeout_seconds is None:
+        timeout_seconds = settings.EDGE_CERT_POLL_TIMEOUT_SECONDS
     out.step(
         "Waiting for root CA chain to be installed "
         f"(poll {poll_interval_seconds}s, timeout {timeout_seconds}s)..."
@@ -325,6 +333,7 @@ def run_edges_automation(
     config_file: Optional[str] = None,
     cert: bool = False,
     extra_routing: bool = False,
+    max_jitter_seconds: float = 10.0,
 ) -> None:
     out = Output(__name__)
     out.header("Automation: EDGES")
@@ -334,8 +343,11 @@ def run_edges_automation(
         return
 
     edge_name_by_id = {id(cfg): name for name, cfg in settings.EDGES.items()}
-    for edge_config in edge_configs:
-        edge_name = edge_name_by_id.get(id(edge_config), "edge")
+
+    def _run_with_jitter(edge_config, edge_name):
+        jitter = random.uniform(0, max_jitter_seconds)
+        out.step(f"[{edge_name}] Starting in {jitter:.1f}s...")
+        time.sleep(jitter)
         run_edge_automation(
             edge_config,
             initial_config=initial_config,
@@ -344,3 +356,25 @@ def run_edges_automation(
             extra_routing=extra_routing,
             edge_name=edge_name,
         )
+
+    with ThreadPoolExecutor(max_workers=len(edge_configs)) as pool:
+        futures = {
+            pool.submit(
+                _run_with_jitter,
+                edge_config,
+                edge_name_by_id.get(id(edge_config), "edge"),
+            ): edge_name_by_id.get(id(edge_config), "edge")
+            for edge_config in edge_configs
+        }
+        failed = []
+        for future in as_completed(futures):
+            name = futures[future]
+            try:
+                future.result()
+            except (SystemExit, Exception) as exc:
+                failed.append(name)
+                out.error(f"[{name}] failed: {exc}")
+
+    if failed:
+        out.error(f"Edge automation failed for: {', '.join(sorted(failed))}")
+        raise SystemExit(1)

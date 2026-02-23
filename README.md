@@ -1,8 +1,45 @@
 # Cisco SD-WAN Certificate Automation
 
-Automate first-boot configuration and enterprise certificate enrollment for a
-Cisco SD-WAN lab (vManage, vBond, vSmart). The workflow uses Netmiko for CLI
+Automate first-boot configuration and certificate enrollment for a
+Cisco SD-WAN lab (Manager, Validator, Controller). The workflow uses Netmiko for CLI
 tasks and the Sastre SDK for Manager API interactions.
+
+## TL;DR — Quick Start
+
+After `netlab up`, from the `automate_sdwan` directory:
+
+### 1. Review `sdwan_variables-base.yml`
+
+Check the static values that netlab cannot derive: site IDs, OSPF areas, VRF ID,
+credentials, and timing. Edit to match your lab before generating.
+
+### 2. Generate the variables file from the netlab topology
+
+```bash
+python sdwan_automation.py generate -t ../host_vars -o sdwan_variables-test.yml
+```
+
+This merges `sdwan_variables-base.yml` with the IPs and interfaces netlab assigned.
+
+### 3. Run first-boot on all SD-WAN components
+
+```bash
+python sdwan_automation.py -f sdwan_variables-test.yml all
+```
+
+This configures Manager, Validator, Controller, and Edges in sequence and enrolls
+all certificates.
+
+### 4. Apply edge routing
+
+```bash
+python sdwan_automation.py -f sdwan_variables-test.yml edges all --extra-routing
+```
+
+This pushes the OSPF and BGP routing configuration to each edge, enabling
+communication between the SD-WAN fabric and the LAN devices connected to each edge.
+
+---
 
 ## Features
 
@@ -10,8 +47,9 @@ tasks and the Sastre SDK for Manager API interactions.
 - Validator (vBond) first-boot config push and pulls cert from Manager
 - Controller (vSmart) first-boot config push and pulls cert from Manager
 - Edge (cEdge) first-boot config and certificate automation (per-edge keys under `devices.edges`)
-- Optional extra routing for edges from the sdwan_variables.yml file (OSPF/BGP)
+- OSPF/BGP extra routing config for edges (`--extra-routing`)
 - Optional config file push for each component
+- `generate` subcommand to produce the variables file from netlab topology files
 - Structured console output and rotating log files
 - Sastre SDK CLI passthrough via `sdk` subcommand
 
@@ -32,104 +70,231 @@ pip install -r requirements.txt
 
 ## Configuration
 
-Edit `sdwan_variables.yml` to match your lab:
+The automation is driven by a single YAML variables file. When working with a
+netlab topology, this file is generated automatically (see [Generate Variables](#generate-variables-from-netlab-topology)).
+For non-netlab setups, use `sdwan_variables.yml` as a starting template and edit
+it manually.
 
-- `shared`, `timing`, and `network` values
-- Device IPs and interface settings under `devices`
-- Certificate file names and CSR defaults
+### sdwan_variables-base.yml
 
-No code changes are required for normal lab updates. The script reads
-`sdwan_variables.yml` via `utils/sdwan_config.py` and builds the config objects
-at runtime. If a required key is missing, the script will fail fast with a clear
-error that includes the missing key name.
+This file contains the **static values** that cannot be derived from the netlab
+topology. It is the only file you need to edit before running `generate`.
 
-### How to set up `sdwan_variables.yml`
+The `generate` subcommand reads both this file and the netlab `host_vars/*/topology.json`
+files, then merges them into a single output file. **Values in this file always
+win** — if a key exists here, it will not be overwritten by the topology data.
 
-Use the existing file as a template. The keys under `devices` are the source of
-truth for what the automation will manage.
+#### What to set here
 
-1) Set shared/global values
-   - `shared`: org name, usernames, passwords, API port
-   - `timing`: wait/retry timers
-   - `certificates`: file names for RSA key, root cert, signed cert
+| Section | Keys | Description |
+| --- | --- | --- |
+| `shared` | `org`, `username`, `default_password`, `updated_password`, `port` | Organisation name, credentials, Manager API port |
+| `timing` | various | Startup sequencing delays, Netmiko and CSR timeouts |
+| `certificates` | `rsa_key`, `root_cert`, `signed_cert` | File names for the RSA key and certificate files |
+| `devices.manager` | `site_id`, `csr_file`, `country`, `state`, `city`, `api_ready_timeout_minutes` | Manager-specific static config |
+| `devices.controller` | `site_id`, `csr_file` | Controller-specific static config |
+| `devices.validator` | `site_id`, `csr_file` | Validator-specific static config |
+| `devices.edges.<name>` | `site_id`, `vrf_id`, `ospf_instance`, `ospf_area` | Per-edge static routing config |
+| `generate` *(optional)* | `mpls_node`, `inet_node` | Regex patterns matched against neighbor node name to identify MPLS/internet transport interfaces (defaults: `mpls`, `inet`) |
 
-2) Define the control-plane devices
-   - `devices.manager|validator|controller`: management IPs and the first-boot
-     CLI inputs (system IP, site ID, gateway, interface details)
+#### What NOT to set here
 
-3) Define edges using your real device names
-   - `devices.edges.<edge_name>`: each edge is keyed by its real name. Those keys
-     are what you pass to the CLI (`./sdwan_automation.py edges <edge_name> ...`).
+Do not put IPs, interface names, or BGP ASNs here — those are all read from the
+netlab topology files and filled in automatically by `generate`.
 
-Example (edges):
+### sdwan_variables.yml (generated output)
+
+This is the file consumed by all automation subcommands. When using netlab, it
+is produced by `generate` and should not be edited manually (changes will be lost
+on the next `generate` run).
+
+The file combines everything from `sdwan_variables-base.yml` with the dynamic
+values extracted from the topology:
+
+- Management IPs and system IPs
+- Data-plane interface names, IPs, and gateways (MPLS, internet, LAN)
+- BGP ASNs (local, MPLS peer, internet peer)
+
+#### Edge device structure
+
+Each edge is keyed by its netlab device name under `devices.edges`:
 
 ```yaml
 devices:
   edges:
-    edge1x01:
-      mgmt_ip: 10.194.58.21
-      system_ip: 10.30.0.7
-      site_id: 101
-      vrf_id: 1
-      inet_interface: GigabitEthernet2
-      inet_ip: 10.10.0.13
-      inet_mask: 255.255.255.0
-      inet_gw: 10.10.0.1
-      inet_desc: edge1x01 to inet0
-      mpls_interface: GigabitEthernet3
-      mpls_ip: 10.1.0.2
-      mpls_mask: 255.255.255.0
-      mpls_gw: 10.1.0.1
-      mpls_desc: edge1x01 to mpls0
-      lan_interface: GigabitEthernet4
-      lan_ip: 192.168.10.1
-      lan_mask: 255.255.255.0
-      lan_desc: edge1x01 to LAN
-      ospf_instance: 1
-      ospf_area: 0
-      bgp_local_as: 65010
+    edge1:
+      # --- from topology (generated) ---
+      mgmt_ip: 10.x.x.x
+      system_ip: 10.x.x.x
+      bgp_local_as: 65591
       bgp_mpls_as: 65000
       bgp_inet_as: 65001
+      mpls_interface: GigabitEthernet2
+      mpls_ip: 10.1.0.2
+      mpls_mask: 255.255.255.252
+      mpls_gw: 10.1.0.1
+      mpls_desc: edge1 to mpls0
+      inet_interface: GigabitEthernet3
+      inet_ip: 10.10.0.2
+      inet_mask: 255.255.255.252
+      inet_gw: 10.10.0.1
+      inet_desc: edge1 to inet0
+      lan_interfaces:
+      - lan_interface: GigabitEthernet4
+        lan_ip: 192.168.10.1
+        lan_mask: 255.255.255.0
+        lan_gw: 192.168.10.254
+        lan_desc: edge1 to LAN
+      # --- from sdwan_variables-base.yml (static) ---
+      site_id: 591
+      vrf_id: 200
+      ospf_instance: 200
+      ospf_area: 0.0.0.191
 ```
 
-Notes:
+Add more items to `lan_interfaces` for additional LAN interfaces.
 
-- Optional `lan2_*` keys can be omitted unless you want a second LAN interface.
-- If a required key is missing, the script exits with a clear error and the
-  edge name that failed.
+#### Control-plane device structure
 
-### Variables guide (what to edit)
+Manager, Validator, and Controller share a common structure:
 
-- `shared`: org name, default/updated passwords, API port
-- `timing`: waits and retry timers used by Netmiko and automation sequencing
-- `certificates`: file names for RSA key, root cert, and signed cert
-- `network`: shared network values (validator/controller system IPs)
-- `devices.manager|validator|controller`: management IPs and initial config
-  fields used to build the first-boot CLI
-- `devices.edges.<edge_name>`: per-edge values for initial config and
-  optional extra routing config (OSPF/BGP) (used by `--extra-routing`)
-
-Edge targets must match the keys under `devices.edges` (for example: edge1x01/edge2x01/edge3x01).
-Using `edges all` selects every edge defined there.
-
-The defaults assume:
-
-- Manager (vManage) at `10.194.58.14`
-- Validator (vBond) at `10.194.58.16`
-- Controller (vSmart) at `10.194.58.15`
-- Validator IP at `10.10.0.6` (interface facing the internet router)
+```yaml
+devices:
+  manager:
+    mgmt_ip: 10.x.x.x
+    system_ip: 10.x.x.x
+    interface_name: eth1
+    interface_ip: 10.x.x.x
+    interface_prefix: 24
+    route_gw: 10.x.x.1
+    interface_desc: sdwan-manager to inet0
+    site_id: 255
+    csr_file: vmanage_csr
+    country: FI
+    state: Finland
+    city: Helsinki
+    api_ready_timeout_minutes: 15
+```
 
 ## Usage
 
 Run from the `automate_sdwan` directory.
 
-### Manager|Validator|Controller
+### Generate Variables from Netlab Topology
+
+Produces the variables file by merging `sdwan_variables-base.yml` with the IPs
+and interfaces assigned by netlab. Run this after every `netlab up`.
 
 ```bash
-python sdwan_automation.py [manager|validator|controller] --first-boot
-python sdwan_automation.py [manager|validator|controller] --cert
-python sdwan_automation.py [manager|validator|controller] --initial-config
-python sdwan_automation.py [manager|validator|controller] --config-file myconfig.txt
+python sdwan_automation.py generate -t ../host_vars
+python sdwan_automation.py generate -t ../host_vars -o sdwan_variables-test.yml
+```
+
+Options:
+
+| Short | Long | Default | Description |
+| --- | --- | --- | --- |
+| `-t` | `--host-vars` | *(required)* | Path to the host_vars (topology) directory |
+| `-b` | `--base` | `<script dir>/sdwan_variables-base.yml` | Base YAML with static values |
+| `-o` | `--output` | `sdwan_variables-test.yml` in current directory | Output file |
+
+#### How device and interface mapping works
+
+The generator scans every `host_vars/<device>/topology.json` file and identifies
+SD-WAN devices as follows:
+
+| Directory name | Mapped to | Detection method |
+| --- | --- | --- |
+| `sdwan-manager` | `devices.manager` | directory name |
+| `sdwan-controller` | `devices.controller` | directory name |
+| `sdwan-validator` | `devices.validator` | directory name |
+| any other dir | `devices.edges.<name>` | `clab.kind == cisco_c8000v` |
+| everything else | skipped | — |
+
+**Control-plane devices (Manager, Controller)** — the generator reads the first
+interface (`interfaces[0]`) to extract the transport IP, prefix, and gateway.
+
+**Validator** — same as above, but the Linux interface name is translated to the
+vBond `ge0/x` notation used in the SD-WAN CLI:
+
+```text
+eth1 → ge0/0
+eth2 → ge0/1
+...
+```
+
+**Edge devices (C8000v)** — each interface is classified by looking at the
+**neighbor node name** recorded in the topology, not by any description or interface
+name. The match is a **regex search**: the configured pattern is tested against
+the neighbor node name, and the first match wins.
+
+| Pattern (regex, default) | Mapped to | Output keys |
+| --- | --- | --- |
+| `mpls` | MPLS transport | `mpls_interface`, `mpls_ip`, `mpls_mask`, `mpls_gw`, `mpls_desc` |
+| `inet` | Internet transport | `inet_interface`, `inet_ip`, `inet_mask`, `inet_gw`, `inet_desc` |
+| no match | LAN | entry added to `lan_interfaces` list |
+
+Any interface whose neighbor name matches neither pattern is treated as a LAN
+interface. You can have any number of LAN interfaces — each becomes a separate
+entry in the `lan_interfaces` list.
+
+BGP ASNs are resolved the same way, using the same regex patterns against
+`bgp.neighbors[].name`:
+
+| BGP neighbor node | Output key |
+| --- | --- |
+| matches `mpls` *(default)* | `bgp_mpls_as` |
+| matches `inet` *(default)* | `bgp_inet_as` |
+| (local device) | `bgp_local_as` (from `bgp.as`) |
+
+The patterns can be overridden in `sdwan_variables-base.yml` under `generate:`.
+Any valid Python regex is accepted. **YAML quoting rules apply**: use single quotes
+whenever the pattern contains `|`, `\`, or starts with `^` — these characters have
+special meaning in YAML and will cause a parse error if left unquoted.
+
+```yaml
+generate:
+  # Simple substring — no quoting needed
+  mpls_node: mpls               # matches mpls0, mpls1, mpls-provider, ...
+
+  # Anchored match — quotes required because ^ starts the value
+  mpls_node: '^mpls\d'          # matches mpls0, mpls1, ... but NOT mpls-provider
+
+  # Alternation — quotes required because | is a YAML block-scalar indicator
+  inet_node: 'inet|internet'    # matches either "inet" or "internet"
+
+  # Anchored alternation
+  inet_node: '^(inet|internet)' # matches names starting with "inet" or "internet"
+```
+
+This section is consumed by `generate` and stripped from the output file.
+
+### Custom variables file
+
+Use `-f` / `--variables-file` before the subcommand to load a specific YAML file.
+This must come **before** the subcommand:
+
+```bash
+python sdwan_automation.py -f sdwan_variables-test.yml all
+python sdwan_automation.py -f sdwan_variables-test.yml edges all --extra-routing
+python sdwan_automation.py -f sdwan_variables-test.yml manager --first-boot
+```
+
+### All Components (First-Boot)
+
+Runs first-boot in sequence: Manager → Validator → Controller → Edges.
+
+```bash
+python sdwan_automation.py -f sdwan_variables-test.yml all
+```
+
+### Manager | Validator | Controller
+
+```bash
+python sdwan_automation.py -f sdwan_variables-test.yml [manager|validator|controller] --first-boot
+python sdwan_automation.py -f sdwan_variables-test.yml [manager|validator|controller] --cert
+python sdwan_automation.py -f sdwan_variables-test.yml [manager|validator|controller] --initial-config
+python sdwan_automation.py -f sdwan_variables-test.yml [manager|validator|controller] --config-file myconfig.txt
 ```
 
 ### Edges (cEdge)
@@ -137,32 +302,29 @@ python sdwan_automation.py [manager|validator|controller] --config-file myconfig
 Targets are required and can be a comma-separated list or `all`:
 
 ```bash
-python sdwan_automation.py edges edge1x01 --first-boot
-python sdwan_automation.py edges edge1x01,edge2x01 --initial-config
-python sdwan_automation.py edges edge3x01 --cert
-python sdwan_automation.py edges all --cert
-python sdwan_automation.py edges edge2x01 --config-file myconfig.txt
-python sdwan_automation.py edges edge1x01 --extra-routing
+python sdwan_automation.py -f sdwan_variables-test.yml edges all --first-boot
+python sdwan_automation.py -f sdwan_variables-test.yml edges all --extra-routing
+python sdwan_automation.py -f sdwan_variables-test.yml edges edge1,edge2 --initial-config
+python sdwan_automation.py -f sdwan_variables-test.yml edges edge1 --cert
+python sdwan_automation.py -f sdwan_variables-test.yml edges edge1 --config-file myconfig.txt
 ```
 
 Edge options:
 
-- `--first-boot` (implies `--initial-config` and `--cert`)
-- `--initial-config`
-- `--cert`
-- `--config-file <file>`
-- `--extra-routing` (pushes routing config built from `sdwan_variables.yml`)
+- `--first-boot` — implies `--initial-config` and `--cert`
+- `--initial-config` — push initial edge configuration
+- `--cert` — run certificate automation
+- `--config-file <file>` — push an additional config file
+- `--extra-routing` — push OSPF and BGP routing config (built from `lan_interfaces`,
+  `vrf_id`, `ospf_instance`, `ospf_area` in the variables file)
 
-### All Components (First-Boot)
-
-```bash
-python sdwan_automation.py all
-```
+Edge targets must match the keys under `devices.edges`. Using `edges all` selects
+every edge defined in the variables file.
 
 ### Show Devices Status
 
 ```bash
-python sdwan_automation.py show devices
+python sdwan_automation.py -f sdwan_variables-test.yml show devices
 ```
 
 ### SDK passthrough
@@ -170,11 +332,11 @@ python sdwan_automation.py show devices
 Run any Sastre SDK CLI command without retyping credentials:
 
 ```bash
-python sdwan_automation.py sdk show dev
-python sdwan_automation.py sdk backup all --workdir backups
+python sdwan_automation.py -f sdwan_variables-test.yml sdk show dev
+python sdwan_automation.py -f sdwan_variables-test.yml sdk backup all --workdir backups
 ```
 
-Add `-v` to any command for verbose console output.
+Add `-v` to any subcommand for verbose console output.
 
 ## Logs
 
@@ -184,7 +346,9 @@ Add `-v` to any command for verbose console output.
 ## Project Layout
 
 - `sdwan_automation.py`: CLI entry point
-- `utils/sdwan_config.py`: config assembly (loads `sdwan_variables.yml`)
-- `sdwan_variables.yml`: site-specific variables
+- `sdwan_variables-base.yml`: static values you maintain manually (edited before each lab run)
+- `sdwan_variables.yml`: production variables file (edit manually for non-netlab setups)
 - `components/`: automation flows per component
+- `utils/generate_sdwan_vars.py`: netlab topology → YAML generator (used by `generate` subcommand)
+- `utils/sdwan_config.py`: config assembly (loads the variables file at runtime)
 - `utils/`: SDK, Netmiko, logging, and console helpers

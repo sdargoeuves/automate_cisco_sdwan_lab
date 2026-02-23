@@ -6,22 +6,19 @@ import yaml
 # =============================================================================
 # Shared Configuration Values
 # =============================================================================
-_VARIABLES_PATH = Path(__file__).resolve().parent.parent / "sdwan_variables.yml"
+DEFAULT_VARIABLES_PATH = Path(__file__).resolve().parent.parent / "sdwan_variables.yml"
+
+# Module-level state — populated by load()
+_VARIABLES_PATH: Path = None
+_DEVICES: dict = {}
 
 
-def _load_variables() -> dict:
+def _load_variables(path: Path) -> dict:
     try:
-        with _VARIABLES_PATH.open("r", encoding="utf-8") as handle:
+        with path.open("r", encoding="utf-8") as handle:
             return yaml.safe_load(handle) or {}
     except FileNotFoundError as exc:
-        raise FileNotFoundError(f"Missing variables file: {_VARIABLES_PATH}") from exc
-
-
-_VARS = _load_variables()
-_SHARED = _VARS.get("shared", {})
-_TIMING = _VARS.get("timing", {})
-_CERTS = _VARS.get("certificates", {})
-_DEVICES = _VARS.get("devices", {})
+        raise FileNotFoundError(f"Missing variables file: {path}") from exc
 
 
 def _require_device(name: str) -> dict:
@@ -43,58 +40,53 @@ def _require_value(device: dict, key: str, name: str = None):
 def _optional_value(device: dict, key: str, default):
     return device.get(key, default)
 
-ORG: str = _SHARED.get("org", "ipf-netlab")
-USERNAME: str = _SHARED.get("username", "admin")
-DEFAULT_PASSWORD: str = _SHARED.get("default_password", "admin")
-UPDATED_PASSWORD: str = _SHARED.get("updated_password", "admin@123")
-PORT: str = str(_SHARED.get("port", "443"))
-WAIT_BEFORE_AUTOMATING_CONTROLLER: int = int(
-    _TIMING.get("wait_before_automating_controller", 120)
-)
-WAIT_BEFORE_AUTOMATING_VALIDATOR: int = int(
-    _TIMING.get("wait_before_automating_validator", 60)
-)
-WAIT_CSR_GENERATION: int = int(_TIMING.get("wait_csr_generation", 30))
-WAIT_BEFORE_ACTIVATING_EDGE: int = int(
-    _TIMING.get("wait_before_activating_edge", 60)
-)
-WAIT_AFTER_GENERATING_PAYG_LICENSE: int = int(
-    _TIMING.get("wait_after_generating_payg_license", 30)
-)
-EDGE_CERT_POLL_INTERVAL_SECONDS: int = int(
-    _TIMING.get("edge_cert_poll_interval_seconds", 10)
-)
-EDGE_CERT_POLL_TIMEOUT_SECONDS: int = int(
-    _TIMING.get("edge_cert_poll_timeout_seconds", 180)
-)
-NETMIKO_INCREASED_READ_TIMEOUT: int = int(
-    _TIMING.get("netmiko_increased_read_timeout", 30)
-)
-CSR_FILE_TIMEOUT_SECONDS: int = int(_TIMING.get("csr_file_timeout_seconds", 60))
-NETMIKO_CONFIG_RETRY_ATTEMPTS: int = int(
-    _TIMING.get("netmiko_config_retry_attempts", 2)
-)
-NETMIKO_CONFIG_RETRY_WAIT_SECONDS: int = int(
-    _TIMING.get("netmiko_config_retry_wait_seconds", 10)
-)
-NETMIKO_COMMIT_READ_TIMEOUT: int = int(
-    _TIMING.get("netmiko_commit_read_timeout", 120)
-)
-NETMIKO_COMMIT_RETRY_ATTEMPTS: int = int(
-    _TIMING.get("netmiko_commit_retry_attempts", 2)
-)
-NETMIKO_COMMIT_RETRY_WAIT_SECONDS: int = int(
-    _TIMING.get("netmiko_commit_retry_wait_seconds", 30)
-)
 
-# Certificate files (same across all devices)
-RSA_KEY: str = _CERTS.get("rsa_key", "SDWAN.key")
-ROOT_CERT: str = _CERTS.get("root_cert", "SDWAN.pem")
-SIGNED_CERT: str = _CERTS.get("signed_cert", "NewCertificate.crt")
-
-# Network (derived from device interface IPs)
-VALIDATOR_IP: str = _require_value(_require_device("validator"), "interface_ip")
-CONTROLLER_IP: str = _require_value(_require_device("controller"), "interface_ip")
+# Module-level variables — populated by load()
+ORG: str = None
+USERNAME: str = None
+DEFAULT_PASSWORD: str = None
+UPDATED_PASSWORD: str = None
+PORT: str = None
+WAIT_BEFORE_AUTOMATING_CONTROLLER: int = None
+WAIT_BEFORE_AUTOMATING_VALIDATOR: int = None
+WAIT_CSR_GENERATION: int = None
+WAIT_BEFORE_ACTIVATING_EDGE: int = None
+WAIT_AFTER_GENERATING_PAYG_LICENSE: int = None
+EDGE_CERT_POLL_INTERVAL_SECONDS: int = None
+EDGE_CERT_POLL_TIMEOUT_SECONDS: int = None
+NETMIKO_INCREASED_READ_TIMEOUT: int = None
+CSR_FILE_TIMEOUT_SECONDS: int = None
+NETMIKO_CONFIG_RETRY_ATTEMPTS: int = None
+NETMIKO_CONFIG_RETRY_WAIT_SECONDS: int = None
+NETMIKO_COMMIT_READ_TIMEOUT: int = None
+NETMIKO_COMMIT_RETRY_ATTEMPTS: int = None
+NETMIKO_COMMIT_RETRY_WAIT_SECONDS: int = None
+NETMIKO_CONNECT_RETRY_WAIT_SECONDS: int = None
+NETMIKO_CONNECT_RETRY_MAX_SECONDS: int = None
+NETMIKO_CONNECT_LOCKOUT_RETRY_INTERVAL: int = None
+CSR_GENERATION_MAX_ATTEMPTS: int = None
+CSR_GENERATION_RETRY_WAIT_SECONDS: int = None
+CSR_FILE_POLL_INTERVAL_SECONDS: int = None
+RSA_KEY: str = None
+ROOT_CERT: str = None
+SIGNED_CERT: str = None
+VALIDATOR_IP: str = None
+CONTROLLER_IP: str = None
+MANAGER_DEVICE: dict = None
+VALIDATOR_DEVICE: dict = None
+CONTROLLER_DEVICE: dict = None
+EDGE_GROUP: dict = None
+EDGE_DEVICES: dict = None
+EDGE_NAMES: tuple = None
+MANAGER_INITIAL_CONFIG: str = None
+VALIDATOR_INITIAL_CONFIG: str = None
+CONTROLLER_INITIAL_CONFIG: str = None
+EDGE_INITIAL_CONFIGS: dict = None
+EDGE_EXTRA_ROUTING_CONFIGS: dict = None
+manager = None
+controller = None
+validator = None
+EDGES: dict = None
 
 
 # =============================================================================
@@ -358,45 +350,27 @@ def build_edge_extra_routing_config(
     bgp_local_as: int,
     bgp_mpls_as: int,
     bgp_inet_as: int,
-    lan_interface: str,
-    lan_ip: str,
-    lan_mask: str,
-    lan_desc: str,
+    lan_interfaces: list,
     mpls_gw: str,
     inet_gw: str,
-    lan2_interface: str = None,
-    lan2_ip: str = None,
-    lan2_mask: str = None,
-    lan2_desc: str = None,
 ) -> str:
-    second_lan_interface = ""
-    if lan2_interface and lan2_ip and lan2_mask and lan2_desc:
-        second_lan_interface = f"""
-
-interface {lan2_interface}
+    lan_blocks = ""
+    for lan in lan_interfaces:
+        lan_blocks += f"""
+interface {lan["lan_interface"]}
  vrf forwarding {vrf_id}
- ip address {lan2_ip} {lan2_mask}
- description "{lan2_desc}"
+ ip address {lan["lan_ip"]} {lan["lan_mask"]}
+ description "{lan["lan_desc"]}"
  ip ospf network point-to-point
  ip ospf {ospf_instance} area {ospf_area}
  no shut
-
 """
 
     return f"""
-
 router ospf {ospf_instance} vrf {vrf_id}
  redistribute omp
  router-id {system_ip}
-
-interface {lan_interface}
- vrf forwarding {vrf_id}
- ip address {lan_ip} {lan_mask}
- description "{lan_desc}"
- ip ospf network point-to-point
- ip ospf {ospf_instance} area {ospf_area}
- no shut
-
+{lan_blocks}
 router bgp {bgp_local_as}
  bgp log-neighbor-changes
  neighbor {mpls_gw} remote-as {bgp_mpls_as}
@@ -409,134 +383,260 @@ router bgp {bgp_local_as}
   neighbor {inet_gw} activate
  exit-address-family
 !
-""" + second_lan_interface
+"""
 
 
 # =============================================================================
-# Device Definitions
+# Load function — call this once at startup before using any settings
 # =============================================================================
-MANAGER_DEVICE = _require_device("manager")
-VALIDATOR_DEVICE = _require_device("validator")
-CONTROLLER_DEVICE = _require_device("controller")
-EDGE_GROUP = _require_device("edges")
-EDGE_DEVICES: dict[str, dict] = {}
-for edge_name, edge_device in EDGE_GROUP.items():
-    if edge_name == "_name":
-        continue
-    if not isinstance(edge_device, dict):
-        raise TypeError(
-            f"Edge '{edge_name}' in {_VARIABLES_PATH} must be a mapping."
+def load(variables_path=None) -> None:
+    """Load (or reload) all settings from the variables YAML file.
+
+    Args:
+        variables_path: Path to the YAML file. Defaults to
+            ``sdwan_variables.yml`` next to the project root.
+    """
+    global _VARIABLES_PATH, _DEVICES
+    global ORG, USERNAME, DEFAULT_PASSWORD, UPDATED_PASSWORD, PORT
+    global WAIT_BEFORE_AUTOMATING_CONTROLLER, WAIT_BEFORE_AUTOMATING_VALIDATOR
+    global WAIT_CSR_GENERATION, WAIT_BEFORE_ACTIVATING_EDGE
+    global WAIT_AFTER_GENERATING_PAYG_LICENSE, EDGE_CERT_POLL_INTERVAL_SECONDS
+    global EDGE_CERT_POLL_TIMEOUT_SECONDS, NETMIKO_INCREASED_READ_TIMEOUT
+    global CSR_FILE_TIMEOUT_SECONDS, NETMIKO_CONFIG_RETRY_ATTEMPTS
+    global NETMIKO_CONFIG_RETRY_WAIT_SECONDS, NETMIKO_COMMIT_READ_TIMEOUT
+    global NETMIKO_COMMIT_RETRY_ATTEMPTS, NETMIKO_COMMIT_RETRY_WAIT_SECONDS
+    global NETMIKO_CONNECT_RETRY_WAIT_SECONDS, NETMIKO_CONNECT_RETRY_MAX_SECONDS
+    global NETMIKO_CONNECT_LOCKOUT_RETRY_INTERVAL
+    global CSR_GENERATION_MAX_ATTEMPTS, CSR_GENERATION_RETRY_WAIT_SECONDS
+    global CSR_FILE_POLL_INTERVAL_SECONDS
+    global RSA_KEY, ROOT_CERT, SIGNED_CERT, VALIDATOR_IP, CONTROLLER_IP
+    global MANAGER_DEVICE, VALIDATOR_DEVICE, CONTROLLER_DEVICE
+    global EDGE_GROUP, EDGE_DEVICES, EDGE_NAMES
+    global MANAGER_INITIAL_CONFIG, VALIDATOR_INITIAL_CONFIG, CONTROLLER_INITIAL_CONFIG
+    global EDGE_INITIAL_CONFIGS, EDGE_EXTRA_ROUTING_CONFIGS
+    global manager, controller, validator, EDGES
+
+    _VARIABLES_PATH = (
+        Path(variables_path).resolve() if variables_path else DEFAULT_VARIABLES_PATH
+    )
+
+    _vars = _load_variables(_VARIABLES_PATH)
+    _shared = _vars.get("shared", {})
+    _timing = _vars.get("timing", {})
+    _certs = _vars.get("certificates", {})
+    _DEVICES = _vars.get("devices", {})
+
+    ORG = _shared.get("org", "ipf-netlab")
+    USERNAME = _shared.get("username", "admin")
+    DEFAULT_PASSWORD = _shared.get("default_password", "admin")
+    UPDATED_PASSWORD = _shared.get("updated_password", "admin@123")
+    PORT = str(_shared.get("port", "443"))
+    WAIT_BEFORE_AUTOMATING_CONTROLLER = int(
+        _timing.get("wait_before_automating_controller", 120)
+    )
+    WAIT_BEFORE_AUTOMATING_VALIDATOR = int(
+        _timing.get("wait_before_automating_validator", 60)
+    )
+    WAIT_CSR_GENERATION = int(_timing.get("wait_csr_generation", 30))
+    WAIT_BEFORE_ACTIVATING_EDGE = int(_timing.get("wait_before_activating_edge", 60))
+    WAIT_AFTER_GENERATING_PAYG_LICENSE = int(
+        _timing.get("wait_after_generating_payg_license", 30)
+    )
+    EDGE_CERT_POLL_INTERVAL_SECONDS = int(
+        _timing.get("edge_cert_poll_interval_seconds", 10)
+    )
+    EDGE_CERT_POLL_TIMEOUT_SECONDS = int(
+        _timing.get("edge_cert_poll_timeout_seconds", 180)
+    )
+    NETMIKO_INCREASED_READ_TIMEOUT = int(
+        _timing.get("netmiko_increased_read_timeout", 30)
+    )
+    CSR_FILE_TIMEOUT_SECONDS = int(_timing.get("csr_file_timeout_seconds", 60))
+    NETMIKO_CONFIG_RETRY_ATTEMPTS = int(_timing.get("netmiko_config_retry_attempts", 2))
+    NETMIKO_CONFIG_RETRY_WAIT_SECONDS = int(
+        _timing.get("netmiko_config_retry_wait_seconds", 10)
+    )
+    NETMIKO_COMMIT_READ_TIMEOUT = int(_timing.get("netmiko_commit_read_timeout", 120))
+    NETMIKO_COMMIT_RETRY_ATTEMPTS = int(_timing.get("netmiko_commit_retry_attempts", 2))
+    NETMIKO_COMMIT_RETRY_WAIT_SECONDS = int(
+        _timing.get("netmiko_commit_retry_wait_seconds", 30)
+    )
+    NETMIKO_CONNECT_RETRY_WAIT_SECONDS = int(
+        _timing.get("netmiko_connect_retry_wait_seconds", 120)
+    )
+    NETMIKO_CONNECT_RETRY_MAX_SECONDS = int(
+        _timing.get("netmiko_connect_retry_max_seconds", 900)
+    )
+    NETMIKO_CONNECT_LOCKOUT_RETRY_INTERVAL = int(
+        _timing.get("netmiko_connect_lockout_retry_interval", 180)
+    )
+    CSR_GENERATION_MAX_ATTEMPTS = int(_timing.get("csr_generation_max_attempts", 3))
+    CSR_GENERATION_RETRY_WAIT_SECONDS = int(
+        _timing.get("csr_generation_retry_wait_seconds", 5)
+    )
+    CSR_FILE_POLL_INTERVAL_SECONDS = int(_timing.get("csr_file_poll_interval_seconds", 5))
+
+    RSA_KEY = _certs.get("rsa_key", "SDWAN.key")
+    ROOT_CERT = _certs.get("root_cert", "SDWAN.pem")
+    SIGNED_CERT = _certs.get("signed_cert", "NewCertificate.crt")
+
+    VALIDATOR_IP = _require_value(_require_device("validator"), "interface_ip")
+    CONTROLLER_IP = _require_value(_require_device("controller"), "interface_ip")
+
+    # -------------------------------------------------------------------------
+    # Device Definitions
+    # -------------------------------------------------------------------------
+    MANAGER_DEVICE = _require_device("manager")
+    VALIDATOR_DEVICE = _require_device("validator")
+    CONTROLLER_DEVICE = _require_device("controller")
+    EDGE_GROUP = _require_device("edges")
+    EDGE_DEVICES = {}
+    for edge_name, edge_device in EDGE_GROUP.items():
+        if edge_name == "_name":
+            continue
+        if not isinstance(edge_device, dict):
+            raise TypeError(
+                f"Edge '{edge_name}' in {_VARIABLES_PATH} must be a mapping."
+            )
+        device_copy = dict(edge_device)
+        device_copy["_name"] = edge_name
+        EDGE_DEVICES[edge_name] = device_copy
+
+    if not EDGE_DEVICES:
+        raise KeyError(f"Missing edge definitions in {_VARIABLES_PATH}.")
+
+    EDGE_NAMES = tuple(EDGE_DEVICES.keys())
+
+    MANAGER_INITIAL_CONFIG = build_manager_initial_config(
+        system_ip=_require_value(MANAGER_DEVICE, "system_ip"),
+        site_id=_require_value(MANAGER_DEVICE, "site_id"),
+        route_gw=_require_value(MANAGER_DEVICE, "route_gw"),
+        interface_name=_require_value(MANAGER_DEVICE, "interface_name"),
+        interface_ip=_require_value(MANAGER_DEVICE, "interface_ip"),
+        interface_prefix=_require_value(MANAGER_DEVICE, "interface_prefix"),
+        interface_desc=_require_value(MANAGER_DEVICE, "interface_desc"),
+    )
+
+    VALIDATOR_INITIAL_CONFIG = build_validator_initial_config(
+        system_ip=_require_value(VALIDATOR_DEVICE, "system_ip"),
+        site_id=_require_value(VALIDATOR_DEVICE, "site_id"),
+        route_gw=_require_value(VALIDATOR_DEVICE, "route_gw"),
+        interface_name=_require_value(VALIDATOR_DEVICE, "interface_name"),
+        interface_ip=_require_value(VALIDATOR_DEVICE, "interface_ip"),
+        interface_prefix=_require_value(VALIDATOR_DEVICE, "interface_prefix"),
+        interface_desc=_require_value(VALIDATOR_DEVICE, "interface_desc"),
+    )
+
+    CONTROLLER_INITIAL_CONFIG = build_controller_initial_config(
+        system_ip=_require_value(CONTROLLER_DEVICE, "system_ip"),
+        site_id=_require_value(CONTROLLER_DEVICE, "site_id"),
+        route_gw=_require_value(CONTROLLER_DEVICE, "route_gw"),
+        interface_name=_require_value(CONTROLLER_DEVICE, "interface_name"),
+        interface_ip=_require_value(CONTROLLER_DEVICE, "interface_ip"),
+        interface_prefix=_require_value(CONTROLLER_DEVICE, "interface_prefix"),
+        interface_desc=_require_value(CONTROLLER_DEVICE, "interface_desc"),
+    )
+
+    EDGE_INITIAL_CONFIGS = {}
+    EDGE_EXTRA_ROUTING_CONFIGS = {}
+
+    for edge_name, edge_device in EDGE_DEVICES.items():
+        EDGE_INITIAL_CONFIGS[edge_name] = build_edge_initial_config(
+            name=edge_name,
+            system_ip=_require_value(edge_device, "system_ip"),
+            site_id=_require_value(edge_device, "site_id"),
+            vrf_id=_require_value(edge_device, "vrf_id"),
+            inet_ip=_require_value(edge_device, "inet_ip"),
+            inet_mask=_require_value(edge_device, "inet_mask"),
+            inet_gw=_require_value(edge_device, "inet_gw"),
+            inet_desc=_require_value(edge_device, "inet_desc"),
+            inet_interface=_require_value(edge_device, "inet_interface"),
+            mpls_ip=_require_value(edge_device, "mpls_ip"),
+            mpls_mask=_require_value(edge_device, "mpls_mask"),
+            mpls_gw=_require_value(edge_device, "mpls_gw"),
+            mpls_desc=_require_value(edge_device, "mpls_desc"),
+            mpls_interface=_require_value(edge_device, "mpls_interface"),
         )
-    device_copy = dict(edge_device)
-    device_copy["_name"] = edge_name
-    EDGE_DEVICES[edge_name] = device_copy
+        EDGE_EXTRA_ROUTING_CONFIGS[edge_name] = build_edge_extra_routing_config(
+            name=edge_name,
+            system_ip=_require_value(edge_device, "system_ip"),
+            vrf_id=_require_value(edge_device, "vrf_id"),
+            ospf_instance=_require_value(edge_device, "ospf_instance"),
+            ospf_area=_require_value(edge_device, "ospf_area"),
+            bgp_local_as=_require_value(edge_device, "bgp_local_as"),
+            bgp_mpls_as=_require_value(edge_device, "bgp_mpls_as"),
+            bgp_inet_as=_require_value(edge_device, "bgp_inet_as"),
+            lan_interfaces=_require_value(edge_device, "lan_interfaces"),
+            mpls_gw=_require_value(edge_device, "mpls_gw"),
+            inet_gw=_require_value(edge_device, "inet_gw"),
+        )
 
-if not EDGE_DEVICES:
-    raise KeyError(f"Missing edge definitions in {_VARIABLES_PATH}.")
-
-EDGE_NAMES = tuple(EDGE_DEVICES.keys())
-
-
-MANAGER_INITIAL_CONFIG = build_manager_initial_config(
-    system_ip=_require_value(MANAGER_DEVICE, "system_ip"),
-    site_id=_require_value(MANAGER_DEVICE, "site_id"),
-    route_gw=_require_value(MANAGER_DEVICE, "route_gw"),
-    interface_name=_require_value(MANAGER_DEVICE, "interface_name"),
-    interface_ip=_require_value(MANAGER_DEVICE, "interface_ip"),
-    interface_prefix=_require_value(MANAGER_DEVICE, "interface_prefix"),
-    interface_desc=_require_value(MANAGER_DEVICE, "interface_desc"),
-)
-
-VALIDATOR_INITIAL_CONFIG = build_validator_initial_config(
-    system_ip=_require_value(VALIDATOR_DEVICE, "system_ip"),
-    site_id=_require_value(VALIDATOR_DEVICE, "site_id"),
-    route_gw=_require_value(VALIDATOR_DEVICE, "route_gw"),
-    interface_name=_require_value(VALIDATOR_DEVICE, "interface_name"),
-    interface_ip=_require_value(VALIDATOR_DEVICE, "interface_ip"),
-    interface_prefix=_require_value(VALIDATOR_DEVICE, "interface_prefix"),
-    interface_desc=_require_value(VALIDATOR_DEVICE, "interface_desc"),
-)
-
-CONTROLLER_INITIAL_CONFIG = build_controller_initial_config(
-    system_ip=_require_value(CONTROLLER_DEVICE, "system_ip"),
-    site_id=_require_value(CONTROLLER_DEVICE, "site_id"),
-    route_gw=_require_value(CONTROLLER_DEVICE, "route_gw"),
-    interface_name=_require_value(CONTROLLER_DEVICE, "interface_name"),
-    interface_ip=_require_value(CONTROLLER_DEVICE, "interface_ip"),
-    interface_prefix=_require_value(CONTROLLER_DEVICE, "interface_prefix"),
-    interface_desc=_require_value(CONTROLLER_DEVICE, "interface_desc"),
-)
-EDGE_INITIAL_CONFIGS: dict[str, str] = {}
-EDGE_EXTRA_ROUTING_CONFIGS: dict[str, str] = {}
-
-for edge_name, edge_device in EDGE_DEVICES.items():
-    EDGE_INITIAL_CONFIGS[edge_name] = build_edge_initial_config(
-        name=edge_name,
-        system_ip=_require_value(edge_device, "system_ip"),
-        site_id=_require_value(edge_device, "site_id"),
-        vrf_id=_require_value(edge_device, "vrf_id"),
-        inet_ip=_require_value(edge_device, "inet_ip"),
-        inet_mask=_require_value(edge_device, "inet_mask"),
-        inet_gw=_require_value(edge_device, "inet_gw"),
-        inet_desc=_require_value(edge_device, "inet_desc"),
-        inet_interface=_require_value(edge_device, "inet_interface"),
-        mpls_ip=_require_value(edge_device, "mpls_ip"),
-        mpls_mask=_require_value(edge_device, "mpls_mask"),
-        mpls_gw=_require_value(edge_device, "mpls_gw"),
-        mpls_desc=_require_value(edge_device, "mpls_desc"),
-        mpls_interface=_require_value(edge_device, "mpls_interface"),
-    )
-    EDGE_EXTRA_ROUTING_CONFIGS[edge_name] = build_edge_extra_routing_config(
-        name=edge_name,
-        system_ip=_require_value(edge_device, "system_ip"),
-        vrf_id=_require_value(edge_device, "vrf_id"),
-        ospf_instance=_require_value(edge_device, "ospf_instance"),
-        ospf_area=_require_value(edge_device, "ospf_area"),
-        bgp_local_as=_require_value(edge_device, "bgp_local_as"),
-        bgp_mpls_as=_require_value(edge_device, "bgp_mpls_as"),
-        bgp_inet_as=_require_value(edge_device, "bgp_inet_as"),
-        lan_interface=_require_value(edge_device, "lan_interface"),
-        lan_ip=_require_value(edge_device, "lan_ip"),
-        lan_mask=_require_value(edge_device, "lan_mask"),
-        lan_desc=_require_value(edge_device, "lan_desc"),
-        lan2_interface=_optional_value(edge_device, "lan2_interface", None),
-        lan2_ip=_optional_value(edge_device, "lan2_ip", None),
-        lan2_mask=_optional_value(edge_device, "lan2_mask", None),
-        lan2_desc=_optional_value(edge_device, "lan2_desc", None),
-        mpls_gw=_require_value(edge_device, "mpls_gw"),
-        inet_gw=_require_value(edge_device, "inet_gw"),
+    # -------------------------------------------------------------------------
+    # Configuration Instances
+    # -------------------------------------------------------------------------
+    manager = ManagerConfig(
+        mgmt_ip=_require_value(MANAGER_DEVICE, "mgmt_ip"),
+        port=PORT,
+        username=USERNAME,
+        password=UPDATED_PASSWORD,
+        default_password=DEFAULT_PASSWORD,
+        org=ORG,
+        validator_ip=VALIDATOR_IP,
+        country=_optional_value(MANAGER_DEVICE, "country", "FI"),
+        state=_optional_value(MANAGER_DEVICE, "state", "Finland"),
+        city=_optional_value(MANAGER_DEVICE, "city", "Helsinki"),
+        rsa_key=RSA_KEY,
+        root_cert=ROOT_CERT,
+        signed_cert=SIGNED_CERT,
+        csr_file=_optional_value(MANAGER_DEVICE, "csr_file", "vmanage_csr"),
+        api_ready_timeout_minutes=int(
+            _optional_value(MANAGER_DEVICE, "api_ready_timeout_minutes", 15)
+        ),
+        initial_config=MANAGER_INITIAL_CONFIG,
     )
 
-# =============================================================================
-# Configuration Instances
-# =============================================================================
-manager = ManagerConfig(
-    mgmt_ip=_require_value(MANAGER_DEVICE, "mgmt_ip"),
-    country=_optional_value(MANAGER_DEVICE, "country", "FI"),
-    state=_optional_value(MANAGER_DEVICE, "state", "Finland"),
-    city=_optional_value(MANAGER_DEVICE, "city", "Helsinki"),
-    csr_file=_optional_value(MANAGER_DEVICE, "csr_file", "vmanage_csr"),
-    api_ready_timeout_minutes=int(
-        _optional_value(MANAGER_DEVICE, "api_ready_timeout_minutes", 15)
-    ),
-    initial_config=MANAGER_INITIAL_CONFIG,
-)
-
-controller = ControllerConfig(
-    mgmt_ip=_require_value(CONTROLLER_DEVICE, "mgmt_ip"),
-    csr_file=_optional_value(CONTROLLER_DEVICE, "csr_file", "vsmart_csr"),
-    initial_config=CONTROLLER_INITIAL_CONFIG,
-)
-
-validator = ValidatorConfig(
-    mgmt_ip=_require_value(VALIDATOR_DEVICE, "mgmt_ip"),
-    csr_file=_optional_value(VALIDATOR_DEVICE, "csr_file", "vbond_csr"),
-    initial_config=VALIDATOR_INITIAL_CONFIG,
-)
-EDGES: dict[str, EdgeConfig] = {
-    edge_name: EdgeConfig(
-        mgmt_ip=_require_value(edge_device, "mgmt_ip"),
-        initial_config=EDGE_INITIAL_CONFIGS[edge_name],
+    controller = ControllerConfig(
+        mgmt_ip=_require_value(CONTROLLER_DEVICE, "mgmt_ip"),
+        username=USERNAME,
+        password=UPDATED_PASSWORD,
+        default_password=DEFAULT_PASSWORD,
+        org=ORG,
+        validator_ip=VALIDATOR_IP,
+        controller_ip=CONTROLLER_IP,
+        rsa_key=RSA_KEY,
+        root_cert=ROOT_CERT,
+        signed_cert=SIGNED_CERT,
+        csr_file=_optional_value(CONTROLLER_DEVICE, "csr_file", "vsmart_csr"),
+        initial_config=CONTROLLER_INITIAL_CONFIG,
     )
-    for edge_name, edge_device in EDGE_DEVICES.items()
-}
+
+    validator = ValidatorConfig(
+        mgmt_ip=_require_value(VALIDATOR_DEVICE, "mgmt_ip"),
+        username=USERNAME,
+        password=UPDATED_PASSWORD,
+        default_password=DEFAULT_PASSWORD,
+        org=ORG,
+        validator_ip=VALIDATOR_IP,
+        rsa_key=RSA_KEY,
+        root_cert=ROOT_CERT,
+        signed_cert=SIGNED_CERT,
+        csr_file=_optional_value(VALIDATOR_DEVICE, "csr_file", "vbond_csr"),
+        initial_config=VALIDATOR_INITIAL_CONFIG,
+    )
+
+    EDGES = {
+        edge_name: EdgeConfig(
+            mgmt_ip=_require_value(edge_device, "mgmt_ip"),
+            username=USERNAME,
+            password=UPDATED_PASSWORD,
+            default_password=DEFAULT_PASSWORD,
+            org=ORG,
+            validator_ip=VALIDATOR_IP,
+            controller_ip=CONTROLLER_IP,
+            rsa_key=RSA_KEY,
+            root_cert=ROOT_CERT,
+            signed_cert=SIGNED_CERT,
+            initial_config=EDGE_INITIAL_CONFIGS[edge_name],
+        )
+        for edge_name, edge_device in EDGE_DEVICES.items()
+    }

@@ -11,6 +11,9 @@ Usage:
     ./sdwan_automation.py [manager, validator, controller] --config-file myconfig.txt
     ./sdwan_automation.py [manager, validator, controller] --cert --config-file additional.txt
 
+    # Use a custom variables file (must come before the subcommand):
+    ./sdwan_automation.py --variables-file /path/to/other_sdwan_variables.yml manager --first-boot
+
     # Run first-boot on all components:
     ./sdwan_automation.py all
 
@@ -19,6 +22,10 @@ Usage:
 
     # Call the sdwan SDK CLI directly using `sdk` and passing all arguments after it:
     ./sdwan_automation.py sdk show dev
+
+    # Generate sdwan_variables.yml from netlab topology files:
+    ./sdwan_automation.py generate -t ../host_vars
+    ./sdwan_automation.py generate -t ../host_vars -o sdwan_variables-test.yml
 """
 
 import argparse
@@ -26,6 +33,7 @@ import sys
 import time
 from pathlib import Path
 
+from utils.generate_sdwan_vars import run as _generate_vars, HERE as _GENERATE_DIR
 from utils import sdwan_config as settings
 from components.sdwan_controller import run_controller_automation
 from components.sdwan_edges import run_edges_automation
@@ -45,6 +53,15 @@ def main():
     parser = argparse.ArgumentParser(
         description="Cisco SD-WAN Certificate Automation",
         formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    parser.add_argument(
+        "-f", "--variables-file",
+        metavar="FILE",
+        default=None,
+        help=(
+            "Path to the SD-WAN variables YAML file "
+            f"(default: {settings.DEFAULT_VARIABLES_PATH})"
+        ),
     )
     subparsers = parser.add_subparsers(dest="component")
 
@@ -170,6 +187,30 @@ def main():
         help="Push edge routing configuration",
     )
 
+    generate_parser = subparsers.add_parser(
+        "generate",
+        help="Generate sdwan_variables YAML from netlab topology files",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+    )
+    generate_parser.add_argument(
+        "-b", "--base",
+        default=_GENERATE_DIR / "sdwan_variables-base.yml",
+        metavar="FILE",
+        help="Base YAML with static values",
+    )
+    generate_parser.add_argument(
+        "-t", "--host-vars",
+        required=True,
+        metavar="DIR",
+        help="Path to the host_vars (topology) directory",
+    )
+    generate_parser.add_argument(
+        "-o", "--output",
+        default="sdwan_variables-test.yml",
+        metavar="FILE",
+        help="Output YAML file",
+    )
+
     all_parser = subparsers.add_parser(
         "all", help="Run first-boot on all components (manager, validator, controller)"
     )
@@ -217,6 +258,12 @@ def main():
         parser.print_help()
         sys.exit(0)
 
+    # Generate does not need SDWAN settings or logging
+    if args.component == "generate":
+        _generate_vars(Path(args.base), Path(args.host_vars), Path(args.output))
+        return
+
+    settings.load(args.variables_file)
     setup_logging(args.verbose)
     out = Output(__name__)
 
