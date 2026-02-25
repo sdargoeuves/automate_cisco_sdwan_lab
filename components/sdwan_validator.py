@@ -1,4 +1,3 @@
-import time
 from typing import Optional
 
 from utils import sdwan_config as settings

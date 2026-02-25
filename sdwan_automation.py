@@ -30,7 +30,6 @@ Usage:
 
 import argparse
 import sys
-import time
 from pathlib import Path
 
 from components.sdwan_controller import run_controller_automation

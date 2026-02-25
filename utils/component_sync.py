@@ -1,4 +1,3 @@
-import time
 
 from utils import sdwan_config as settings
 from utils.manager_api_status import (

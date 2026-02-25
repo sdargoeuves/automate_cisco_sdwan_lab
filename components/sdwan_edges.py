@@ -44,7 +44,7 @@ def generate_payg_licenses(
 ) -> list[dict]:
     if wait_seconds is None:
         wait_seconds = settings.WAIT_AFTER_GENERATING_PAYG_LICENSE_SECONDS
-    out.header(f"EDGE - Generate PAYG Licenses")
+    out.header("EDGE - Generate PAYG Licenses")
     try:
         response = sdk_call_json(
             manager_config,
