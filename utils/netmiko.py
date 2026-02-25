@@ -129,14 +129,12 @@ def push_cli_config(
             try:
                 commit_output = net_connect.send_command_timing(
                     commit_command,
-                    read_timeout=settings.NETMIKO_COMMIT_READ_TIMEOUT,
+                    read_timeout=settings.NETMIKO_COMMIT_READ_TIMEOUT_SECONDS,
                     strip_prompt=False,
                     strip_command=False,
                 )
             except ReadTimeout as exc:
-                out.warning(
-                    f"Commit timed out (attempt {attempt}/{attempts}): {exc}"
-                )
+                out.warning(f"Commit timed out (attempt {attempt}/{attempts}): {exc}")
                 commit_output = ""
             output += "\n" + commit_output
             lower = commit_output.lower()
@@ -250,7 +248,7 @@ def bootstrap_initial_config(
 
     retry_wait_seconds = settings.NETMIKO_CONNECT_RETRY_WAIT_SECONDS
     retry_max_seconds = settings.NETMIKO_CONNECT_RETRY_MAX_SECONDS
-    lockout_retry_interval = settings.NETMIKO_CONNECT_LOCKOUT_RETRY_INTERVAL
+    lockout_retry_interval = settings.NETMIKO_CONNECT_LOCKOUT_RETRY_INTERVAL_SECONDS
     started = time.monotonic()
     attempt = 0
     last_error_summary = ""
@@ -297,7 +295,9 @@ def bootstrap_initial_config(
                 if not lockout_detected:
                     lockout_detected = True
                     # Extend max retry time to allow for lockout period
-                    retry_max_seconds = max(retry_max_seconds, settings.NETMIKO_CONNECT_RETRY_MAX_SECONDS)
+                    retry_max_seconds = max(
+                        retry_max_seconds, settings.NETMIKO_CONNECT_RETRY_MAX_SECONDS
+                    )
                     out.warning(
                         f"Both passwords failed. Assuming account lockout. "
                         f"Will retry every {lockout_retry_interval}s until unlocked."
@@ -391,13 +391,17 @@ def bootstrap_initial_config(
                     both_passwords_failed = True
 
                 # Check for lockout - if both passwords failed, assume lockout
-                is_locked = (is_account_lockout_error(error_text) or
-                            both_passwords_failed)
+                is_locked = (
+                    is_account_lockout_error(error_text) or both_passwords_failed
+                )
 
                 if is_locked:
                     if not lockout_detected:
                         lockout_detected = True
-                        retry_max_seconds = max(retry_max_seconds, settings.NETMIKO_CONNECT_RETRY_MAX_SECONDS)
+                        retry_max_seconds = max(
+                            retry_max_seconds,
+                            settings.NETMIKO_CONNECT_RETRY_MAX_SECONDS,
+                        )
                         out.warning(
                             f"Both passwords failed. Assuming account lockout. "
                             f"Will retry every {lockout_retry_interval}s until unlocked."
@@ -430,7 +434,11 @@ def bootstrap_initial_config(
             return None
         wait_seconds = retry_wait_seconds
         elapsed = time.monotonic() - started
-        reason = f"last error: {last_error_summary}" if last_error_summary else "no error detail"
+        reason = (
+            f"last error: {last_error_summary}"
+            if last_error_summary
+            else "no error detail"
+        )
         out.info(
             "Retrying initial connection in "
             f"{int(wait_seconds)}s (attempt {attempt + 1}, "

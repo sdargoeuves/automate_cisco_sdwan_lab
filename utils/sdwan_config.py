@@ -47,23 +47,23 @@ USERNAME: str = None
 DEFAULT_PASSWORD: str = None
 UPDATED_PASSWORD: str = None
 PORT: str = None
-WAIT_BEFORE_AUTOMATING_CONTROLLER: int = None
-WAIT_BEFORE_AUTOMATING_VALIDATOR: int = None
-WAIT_CSR_GENERATION: int = None
-WAIT_BEFORE_ACTIVATING_EDGE: int = None
-WAIT_AFTER_GENERATING_PAYG_LICENSE: int = None
+WAIT_BEFORE_AUTOMATING_CONTROLLER_SECONDS: int = None
+WAIT_BEFORE_AUTOMATING_VALIDATOR_SECONDS: int = None
+WAIT_CSR_GENERATION_SECONDS: int = None
+WAIT_BEFORE_ACTIVATING_EDGE_SECONDS: int = None
+WAIT_AFTER_GENERATING_PAYG_LICENSE_SECONDS: int = None
 EDGE_CERT_POLL_INTERVAL_SECONDS: int = None
 EDGE_CERT_POLL_TIMEOUT_SECONDS: int = None
-NETMIKO_INCREASED_READ_TIMEOUT: int = None
+NETMIKO_INCREASED_READ_TIMEOUT_SECONDS: int = None
 CSR_FILE_TIMEOUT_SECONDS: int = None
 NETMIKO_CONFIG_RETRY_ATTEMPTS: int = None
 NETMIKO_CONFIG_RETRY_WAIT_SECONDS: int = None
-NETMIKO_COMMIT_READ_TIMEOUT: int = None
+NETMIKO_COMMIT_READ_TIMEOUT_SECONDS: int = None
 NETMIKO_COMMIT_RETRY_ATTEMPTS: int = None
 NETMIKO_COMMIT_RETRY_WAIT_SECONDS: int = None
 NETMIKO_CONNECT_RETRY_WAIT_SECONDS: int = None
 NETMIKO_CONNECT_RETRY_MAX_SECONDS: int = None
-NETMIKO_CONNECT_LOCKOUT_RETRY_INTERVAL: int = None
+NETMIKO_CONNECT_LOCKOUT_RETRY_INTERVAL_SECONDS: int = None
 CSR_GENERATION_MAX_ATTEMPTS: int = None
 CSR_GENERATION_RETRY_WAIT_SECONDS: int = None
 CSR_FILE_POLL_INTERVAL_SECONDS: int = None
@@ -346,7 +346,6 @@ def build_edge_extra_routing_config(
     system_ip: str,
     vrf_id: int,
     ospf_instance: int,
-    ospf_area: str,
     bgp_local_as: int,
     bgp_mpls_as: int,
     bgp_inet_as: int,
@@ -362,7 +361,7 @@ interface {lan["lan_interface"]}
  ip address {lan["lan_ip"]} {lan["lan_mask"]}
  description "{lan["lan_desc"]}"
  ip ospf network point-to-point
- ip ospf {ospf_instance} area {ospf_area}
+ ip ospf {ospf_instance} area 0.0.0.0
  no shut
 """
 
@@ -398,15 +397,17 @@ def load(variables_path=None) -> None:
     """
     global _VARIABLES_PATH, _DEVICES
     global ORG, USERNAME, DEFAULT_PASSWORD, UPDATED_PASSWORD, PORT
-    global WAIT_BEFORE_AUTOMATING_CONTROLLER, WAIT_BEFORE_AUTOMATING_VALIDATOR
-    global WAIT_CSR_GENERATION, WAIT_BEFORE_ACTIVATING_EDGE
-    global WAIT_AFTER_GENERATING_PAYG_LICENSE, EDGE_CERT_POLL_INTERVAL_SECONDS
-    global EDGE_CERT_POLL_TIMEOUT_SECONDS, NETMIKO_INCREASED_READ_TIMEOUT
+    global \
+        WAIT_BEFORE_AUTOMATING_CONTROLLER_SECONDS, \
+        WAIT_BEFORE_AUTOMATING_VALIDATOR_SECONDS
+    global WAIT_CSR_GENERATION_SECONDS, WAIT_BEFORE_ACTIVATING_EDGE_SECONDS
+    global WAIT_AFTER_GENERATING_PAYG_LICENSE_SECONDS, EDGE_CERT_POLL_INTERVAL_SECONDS
+    global EDGE_CERT_POLL_TIMEOUT_SECONDS, NETMIKO_INCREASED_READ_TIMEOUT_SECONDS
     global CSR_FILE_TIMEOUT_SECONDS, NETMIKO_CONFIG_RETRY_ATTEMPTS
-    global NETMIKO_CONFIG_RETRY_WAIT_SECONDS, NETMIKO_COMMIT_READ_TIMEOUT
+    global NETMIKO_CONFIG_RETRY_WAIT_SECONDS, NETMIKO_COMMIT_READ_TIMEOUT_SECONDS
     global NETMIKO_COMMIT_RETRY_ATTEMPTS, NETMIKO_COMMIT_RETRY_WAIT_SECONDS
     global NETMIKO_CONNECT_RETRY_WAIT_SECONDS, NETMIKO_CONNECT_RETRY_MAX_SECONDS
-    global NETMIKO_CONNECT_LOCKOUT_RETRY_INTERVAL
+    global NETMIKO_CONNECT_LOCKOUT_RETRY_INTERVAL_SECONDS
     global CSR_GENERATION_MAX_ATTEMPTS, CSR_GENERATION_RETRY_WAIT_SECONDS
     global CSR_FILE_POLL_INTERVAL_SECONDS
     global RSA_KEY, ROOT_CERT, SIGNED_CERT, VALIDATOR_IP, CONTROLLER_IP
@@ -431,16 +432,18 @@ def load(variables_path=None) -> None:
     DEFAULT_PASSWORD = _shared.get("default_password", "admin")
     UPDATED_PASSWORD = _shared.get("updated_password", "admin@123")
     PORT = str(_shared.get("port", "443"))
-    WAIT_BEFORE_AUTOMATING_CONTROLLER = int(
-        _timing.get("wait_before_automating_controller", 120)
+    WAIT_BEFORE_AUTOMATING_CONTROLLER_SECONDS = int(
+        _timing.get("wait_before_automating_controller_seconds", 120)
     )
-    WAIT_BEFORE_AUTOMATING_VALIDATOR = int(
-        _timing.get("wait_before_automating_validator", 60)
+    WAIT_BEFORE_AUTOMATING_VALIDATOR_SECONDS = int(
+        _timing.get("wait_before_automating_validator_seconds", 60)
     )
-    WAIT_CSR_GENERATION = int(_timing.get("wait_csr_generation", 30))
-    WAIT_BEFORE_ACTIVATING_EDGE = int(_timing.get("wait_before_activating_edge", 60))
-    WAIT_AFTER_GENERATING_PAYG_LICENSE = int(
-        _timing.get("wait_after_generating_payg_license", 30)
+    WAIT_CSR_GENERATION_SECONDS = int(_timing.get("wait_csr_generation_seconds", 30))
+    WAIT_BEFORE_ACTIVATING_EDGE_SECONDS = int(
+        _timing.get("wait_before_activating_edge_seconds", 60)
+    )
+    WAIT_AFTER_GENERATING_PAYG_LICENSE_SECONDS = int(
+        _timing.get("wait_after_generating_payg_license_seconds", 30)
     )
     EDGE_CERT_POLL_INTERVAL_SECONDS = int(
         _timing.get("edge_cert_poll_interval_seconds", 10)
@@ -448,15 +451,17 @@ def load(variables_path=None) -> None:
     EDGE_CERT_POLL_TIMEOUT_SECONDS = int(
         _timing.get("edge_cert_poll_timeout_seconds", 180)
     )
-    NETMIKO_INCREASED_READ_TIMEOUT = int(
-        _timing.get("netmiko_increased_read_timeout", 30)
+    NETMIKO_INCREASED_READ_TIMEOUT_SECONDS = int(
+        _timing.get("netmiko_increased_read_timeout_seconds", 30)
     )
     CSR_FILE_TIMEOUT_SECONDS = int(_timing.get("csr_file_timeout_seconds", 60))
     NETMIKO_CONFIG_RETRY_ATTEMPTS = int(_timing.get("netmiko_config_retry_attempts", 2))
     NETMIKO_CONFIG_RETRY_WAIT_SECONDS = int(
         _timing.get("netmiko_config_retry_wait_seconds", 10)
     )
-    NETMIKO_COMMIT_READ_TIMEOUT = int(_timing.get("netmiko_commit_read_timeout", 120))
+    NETMIKO_COMMIT_READ_TIMEOUT_SECONDS = int(
+        _timing.get("netmiko_commit_read_timeout_seconds", 120)
+    )
     NETMIKO_COMMIT_RETRY_ATTEMPTS = int(_timing.get("netmiko_commit_retry_attempts", 2))
     NETMIKO_COMMIT_RETRY_WAIT_SECONDS = int(
         _timing.get("netmiko_commit_retry_wait_seconds", 30)
@@ -467,14 +472,16 @@ def load(variables_path=None) -> None:
     NETMIKO_CONNECT_RETRY_MAX_SECONDS = int(
         _timing.get("netmiko_connect_retry_max_seconds", 900)
     )
-    NETMIKO_CONNECT_LOCKOUT_RETRY_INTERVAL = int(
-        _timing.get("netmiko_connect_lockout_retry_interval", 180)
+    NETMIKO_CONNECT_LOCKOUT_RETRY_INTERVAL_SECONDS = int(
+        _timing.get("netmiko_connect_lockout_retry_interval_seconds", 180)
     )
     CSR_GENERATION_MAX_ATTEMPTS = int(_timing.get("csr_generation_max_attempts", 3))
     CSR_GENERATION_RETRY_WAIT_SECONDS = int(
         _timing.get("csr_generation_retry_wait_seconds", 5)
     )
-    CSR_FILE_POLL_INTERVAL_SECONDS = int(_timing.get("csr_file_poll_interval_seconds", 5))
+    CSR_FILE_POLL_INTERVAL_SECONDS = int(
+        _timing.get("csr_file_poll_interval_seconds", 5)
+    )
 
     RSA_KEY = _certs.get("rsa_key", "SDWAN.key")
     ROOT_CERT = _certs.get("root_cert", "SDWAN.pem")
@@ -562,7 +569,6 @@ def load(variables_path=None) -> None:
             system_ip=_require_value(edge_device, "system_ip"),
             vrf_id=_require_value(edge_device, "vrf_id"),
             ospf_instance=_require_value(edge_device, "ospf_instance"),
-            ospf_area=_require_value(edge_device, "ospf_area"),
             bgp_local_as=_require_value(edge_device, "bgp_local_as"),
             bgp_mpls_as=_require_value(edge_device, "bgp_mpls_as"),
             bgp_inet_as=_require_value(edge_device, "bgp_inet_as"),

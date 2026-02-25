@@ -5,24 +5,24 @@ shared:
   updated_password: admin@123
   port: '443'
 timing:
-  wait_before_automating_validator: 60
-  wait_before_automating_controller: 120
-  wait_before_activating_edge: 60
-  wait_after_generating_payg_license: 30
+  wait_before_automating_validator_seconds: 60
+  wait_before_automating_controller_seconds: 120
+  wait_before_activating_edge_seconds: 60
+  wait_after_generating_payg_license_seconds: 30
   edge_cert_poll_interval_seconds: 10
   edge_cert_poll_timeout_seconds: 240
-  wait_csr_generation: 30
+  wait_csr_generation_seconds: 30
   csr_generation_max_attempts: 3
   csr_generation_retry_wait_seconds: 5
   csr_file_timeout_seconds: 60
   csr_file_poll_interval_seconds: 5
   netmiko_connect_retry_wait_seconds: 120
   netmiko_connect_retry_max_seconds: 900
-  netmiko_connect_lockout_retry_interval: 180
-  netmiko_increased_read_timeout: 60
+  netmiko_connect_lockout_retry_interval_seconds: 180
+  netmiko_increased_read_timeout_seconds: 60
   netmiko_config_retry_attempts: 2
   netmiko_config_retry_wait_seconds: 20
-  netmiko_commit_read_timeout: 120
+  netmiko_commit_read_timeout_seconds: 120
   netmiko_commit_retry_attempts: 2
   netmiko_commit_retry_wait_seconds: 30
 certificates:
@@ -90,7 +90,6 @@ devices:
       site_id: 591
       vrf_id: 200
       ospf_instance: 200
-      ospf_area: 0.0.0.191
     edge2:
       mgmt_ip: 10.194.59.17
       system_ip: 10.194.59.17
@@ -116,7 +115,6 @@ devices:
       site_id: 592
       vrf_id: 200
       ospf_instance: 200
-      ospf_area: 0.0.0.192
     edge3:
       mgmt_ip: 10.194.59.18
       system_ip: 10.194.59.18
@@ -142,4 +140,3 @@ devices:
       site_id: 593
       vrf_id: 200
       ospf_instance: 200
-      ospf_area: 0.0.0.193

@@ -4,11 +4,12 @@
 # All other fields (IPs, interfaces, BGP ASNs, etc.) are generated automatically
 # by the `generate` subcommand from the topology files.
 
+
 # ── Generator settings ────────────────────────────────────────────────────────
 # Controls how the `generate` subcommand identifies transport interfaces on edge
 # devices. Each value is a regex pattern matched against the neighbor node name
 # recorded in the topology — so "mpls" matches "mpls0", "mpls1", "mpls-provider", etc.
-# Remove the comment markers to override the defaults.
+# It HAS TO MATCH the name of the neighbor node in the topology file, otherwise the generator won't be able to identify the transport interfaces and assign IPs correctly.
 #
 generate:
   mpls_node: '^mpls\d'   # regex matched against neighbor node name → MPLS transport
@@ -23,17 +24,18 @@ shared:
 
 timing:
   # Startup sequencing — delays between launching each component
-  wait_before_automating_validator: 60
-  wait_before_automating_controller: 120
+  wait_before_automating_validator_seconds: 60
+  wait_before_automating_controller_seconds: 120
+  manager_api_ready_timeout_seconds: 900        # how long to wait for the manager API after first boot
 
   # Edge automation
-  wait_before_activating_edge: 60
-  wait_after_generating_payg_license: 30
+  wait_before_activating_edge_seconds: 60
+  wait_after_generating_payg_license_seconds: 30
   edge_cert_poll_interval_seconds: 10
   edge_cert_poll_timeout_seconds: 240
 
   # CSR operations
-  wait_csr_generation: 30              # fixed wait on validator/controller after CSR is requested
+  wait_csr_generation_seconds: 30              # fixed wait on validator/controller after CSR is requested
   csr_generation_max_attempts: 3       # manager: max retries for the CSR generation API call
   csr_generation_retry_wait_seconds: 5 # manager: wait between CSR generation retries
   csr_file_timeout_seconds: 60         # manager: total budget for CSR file to appear
@@ -42,55 +44,33 @@ timing:
   # Netmiko — initial device connection (bootstrap)
   netmiko_connect_retry_wait_seconds: 120
   netmiko_connect_retry_max_seconds: 900
-  netmiko_connect_lockout_retry_interval: 180
+  netmiko_connect_lockout_retry_interval_seconds: 180
 
   # Netmiko — config push
-  netmiko_increased_read_timeout: 60
+  netmiko_increased_read_timeout_seconds: 60
   netmiko_config_retry_attempts: 2
   netmiko_config_retry_wait_seconds: 20
 
   # Netmiko — commit
-  netmiko_commit_read_timeout: 120
+  netmiko_commit_read_timeout_seconds: 120
   netmiko_commit_retry_attempts: 2
   netmiko_commit_retry_wait_seconds: 30
 
-certificates:
-  rsa_key: SDWAN.key
-  root_cert: SDWAN.pem
-  signed_cert: NewCertificate.crt
-
 devices:
-  manager:
-    site_id: 255
-    country: FI
-    state: Finland
-    city: Helsinki
-    csr_file: vmanage_csr
-    api_ready_timeout_minutes: 15
-
-  controller:
-    site_id: 255
-    csr_file: vsmart_csr
-
-  validator:
-    site_id: 255
-    csr_file: vbond_csr
+  component_site_id: 255   # shared site_id for manager, controller, and validator
 
   edges:
-    edge1:
-      site_id: 591
+    edge1x01:
+      site_id: 201
       vrf_id: 200
       ospf_instance: 200
-      ospf_area: 0.0.0.191
 
-    edge2:
-      site_id: 592
+    edge2x01:
+      site_id: 202
       vrf_id: 200
       ospf_instance: 200
-      ospf_area: 0.0.0.192
 
-    edge3:
-      site_id: 593
+    edge3x01:
+      site_id: 203
       vrf_id: 200
       ospf_instance: 200
-      ospf_area: 0.0.0.193

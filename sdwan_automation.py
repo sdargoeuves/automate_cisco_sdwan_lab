@@ -33,13 +33,14 @@ import sys
 import time
 from pathlib import Path
 
-from utils.generate_sdwan_vars import run as _generate_vars, HERE as _GENERATE_DIR
-from utils import sdwan_config as settings
 from components.sdwan_controller import run_controller_automation
 from components.sdwan_edges import run_edges_automation
 from components.sdwan_manager import run_manager_automation
 from components.sdwan_validator import run_validator_automation
+from utils import sdwan_config as settings
 from utils.component_sync import reboot_out_of_sync_components
+from utils.generate_sdwan_vars import HERE as _GENERATE_DIR
+from utils.generate_sdwan_vars import run as _generate_vars
 from utils.logging import setup_logging
 from utils.manager_api_status import show_controller_status, show_edge_health_status
 from utils.output import Output
@@ -55,7 +56,8 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument(
-        "-f", "--variables-file",
+        "-f",
+        "--variables-file",
         metavar="FILE",
         default=None,
         help=(
@@ -193,19 +195,22 @@ def main():
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
     generate_parser.add_argument(
-        "-b", "--base",
+        "-b",
+        "--base",
         default=_GENERATE_DIR / "sdwan_variables-base.yml",
         metavar="FILE",
         help="Base YAML with static values",
     )
     generate_parser.add_argument(
-        "-t", "--host-vars",
+        "-t",
+        "--host-vars",
         required=True,
         metavar="DIR",
         help="Path to the host_vars (topology) directory",
     )
     generate_parser.add_argument(
-        "-o", "--output",
+        "-o",
+        "--output",
         default="sdwan_variables-test.yml",
         metavar="FILE",
         help="Output YAML file",
@@ -278,8 +283,8 @@ def main():
             cert=True,
         )
         out.spinner_wait(
-            f"Waiting {settings.WAIT_BEFORE_AUTOMATING_VALIDATOR}s before starting Validator automation...",
-            settings.WAIT_BEFORE_AUTOMATING_VALIDATOR,
+            f"Waiting {settings.WAIT_BEFORE_AUTOMATING_VALIDATOR_SECONDS}s before starting Validator automation...",
+            settings.WAIT_BEFORE_AUTOMATING_VALIDATOR_SECONDS,
         )
         run_validator_automation(
             settings.validator,
@@ -287,8 +292,8 @@ def main():
             cert=True,
         )
         out.spinner_wait(
-            f"Waiting {settings.WAIT_BEFORE_AUTOMATING_CONTROLLER}s before starting Controller automation...",
-            settings.WAIT_BEFORE_AUTOMATING_CONTROLLER,
+            f"Waiting {settings.WAIT_BEFORE_AUTOMATING_CONTROLLER_SECONDS}s before starting Controller automation...",
+            settings.WAIT_BEFORE_AUTOMATING_CONTROLLER_SECONDS,
         )
         run_controller_automation(
             settings.controller,

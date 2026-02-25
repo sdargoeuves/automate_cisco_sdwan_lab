@@ -94,7 +94,7 @@ win** — if a key exists here, it will not be overwritten by the topology data.
 | `devices.manager` | `site_id`, `csr_file`, `country`, `state`, `city`, `api_ready_timeout_minutes` | Manager-specific static config |
 | `devices.controller` | `site_id`, `csr_file` | Controller-specific static config |
 | `devices.validator` | `site_id`, `csr_file` | Validator-specific static config |
-| `devices.edges.<name>` | `site_id`, `vrf_id`, `ospf_instance`, `ospf_area` | Per-edge static routing config |
+| `devices.edges.<name>` | `site_id`, `vrf_id`, `ospf_instance` | Per-edge static routing config |
 | `generate` *(optional)* | `mpls_node`, `inet_node` | Regex patterns matched against neighbor node name to identify MPLS/internet transport interfaces (defaults: `mpls`, `inet`) |
 
 #### What NOT to set here
@@ -149,7 +149,6 @@ devices:
       site_id: 591
       vrf_id: 200
       ospf_instance: 200
-      ospf_area: 0.0.0.191
 ```
 
 Add more items to `lan_interfaces` for additional LAN interfaces.
@@ -316,7 +315,7 @@ Edge options:
 - `--cert` — run certificate automation
 - `--config-file <file>` — push an additional config file
 - `--extra-routing` — push OSPF and BGP routing config (built from `lan_interfaces`,
-  `vrf_id`, `ospf_instance`, `ospf_area` in the variables file)
+  `vrf_id`, `ospf_instance` in the variables file)
 
 Edge targets must match the keys under `devices.edges`. Using `edges all` selects
 every edge defined in the variables file.
