@@ -4,19 +4,19 @@ Automate first-boot configuration and certificate enrollment for a
 Cisco SD-WAN lab (Manager, Validator, Controller). The workflow uses Netmiko for CLI
 tasks and the Sastre SDK for Manager API interactions.
 
-## TL;DR — Quick Start
+## TL;DR — Quick Start with `netlab`
 
 After `netlab up`, from the `automate_sdwan` directory:
 
-### 1. Review `sdwan_variables-base.yml`
+### 1. Review `sdwan_base_variables.yml`
 
-Check the static values that netlab cannot derive: site IDs, OSPF areas, VRF ID,
+Check the static values that netlab cannot derive: site IDs, VPN ID,
 credentials, and timing. Edit to match your lab before generating.
 
 ### 2. Generate variables and run first-boot in one step
 
 ```bash
-python sdwan_automation.py deploy --host-vars ../host_vars
+python sdwan_automation.py deploy --host-vars /path/to/netlab/host_vars
 ```
 
 This generates the variables file from the netlab topology and immediately runs
@@ -26,20 +26,20 @@ Alternatively, run the two steps separately:
 
 ```bash
 # 2a. Generate the variables file
-python sdwan_automation.py generate --host-vars ../host_vars -o sdwan_variables-test.yml
+python sdwan_automation.py generate --host-vars /path/to/netlab/host_vars -o sdwan_variables-test.yml
 
 # 2b. Run first-boot on all SD-WAN components
-python sdwan_automation.py -f sdwan_variables-test.yml all
+python sdwan_automation.py --variables-file sdwan_variables-test.yml all
 ```
 
 ### 4. Apply edge routing
 
 ```bash
-python sdwan_automation.py -f sdwan_variables-test.yml edges all --extra-routing
+python sdwan_automation.py --variables-file sdwan_variables-test.yml edges all --extra-routing
 ```
 
 This pushes the OSPF and BGP routing configuration to each edge, enabling
-communication between the SD-WAN fabric and the LAN devices connected to each edge.
+communication between the SD-WAN fabric, the transport devices and the LAN devices connected to each edge.
 
 ---
 
