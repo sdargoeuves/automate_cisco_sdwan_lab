@@ -6,7 +6,9 @@ import yaml
 # =============================================================================
 # Shared Configuration Values
 # =============================================================================
-DEFAULT_VARIABLES_PATH = Path(__file__).resolve().parent.parent / "sdwan_variables.yml"
+DEFAULT_VARIABLES_PATH = (
+    Path(__file__).resolve().parent.parent / "sdwan_variables.gen.yml"
+)
 
 # Module-level state — populated by load()
 _VARIABLES_PATH: Path = None
@@ -393,7 +395,7 @@ def load(variables_path=None) -> None:
 
     Args:
         variables_path: Path to the YAML file. Defaults to
-            ``sdwan_variables.yml`` next to the project root.
+            ``sdwan_variables.gen.yml`` next to the project root.
     """
     global _VARIABLES_PATH, _DEVICES
     global ORG, USERNAME, DEFAULT_PASSWORD, UPDATED_PASSWORD, PORT

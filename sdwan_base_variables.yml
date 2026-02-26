@@ -1,5 +1,3 @@
-# sdwan_variables-base.yml
-#
 # Static values that cannot be derived from the netlab topology (host_vars/*/topology.json).
 # All other fields (IPs, interfaces, BGP ASNs, etc.) are generated automatically
 # by the `generate` subcommand from the topology files.
@@ -17,11 +15,29 @@ generate:
 
 shared:
   org: ipf-netlab
-  username: admin
-  default_password: admin
-  updated_password: admin@123
-  port: "443"
+  username: admin             # initial/default username for all components after initial boot (same for manager, controller, validator and edges)
+  default_password: admin     # initial/default password for all components after initial boot (same for manager, controller, validator and edges)
+  updated_password: admin@123 # new password which will be configured on all components (same for manager, controller, validator and edges)
+  port: "443"                 # port for manager APIs
 
+devices:
+  component_site_id: 255   # shared site_id for manager, controller, and validator
+  vpn_id: 100              # shared VRF/VPN and OSPF instance ID for all edges
+  edges:
+    edge1:
+      site_id: 101
+    edge2:
+      site_id: 102
+    edge3:
+      site_id: 103
+
+
+
+
+# ---------------------------------------------------------------------------------------------
+# EDITING THE VARIABLES BELOW THIS LINE IS OPTIONAL AND SHOULD NOT BE NEEDED FOR MOST USE CASES
+# ---------------------------------------------------------------------------------------------
+# Timing and retry settings
 timing:
   # Startup sequencing — delays between launching each component
   wait_before_automating_validator_seconds: 60
@@ -35,7 +51,7 @@ timing:
   edge_cert_poll_timeout_seconds: 240
 
   # CSR operations
-  wait_csr_generation_seconds: 30              # fixed wait on validator/controller after CSR is requested
+  wait_csr_generation_seconds: 30      # fixed wait on validator/controller after CSR is requested
   csr_generation_max_attempts: 3       # manager: max retries for the CSR generation API call
   csr_generation_retry_wait_seconds: 5 # manager: wait between CSR generation retries
   csr_file_timeout_seconds: 60         # manager: total budget for CSR file to appear
@@ -56,21 +72,7 @@ timing:
   netmiko_commit_retry_attempts: 2
   netmiko_commit_retry_wait_seconds: 30
 
-devices:
-  component_site_id: 255   # shared site_id for manager, controller, and validator
-
-  edges:
-    edge1x01:
-      site_id: 201
-      vrf_id: 200
-      ospf_instance: 200
-
-    edge2x01:
-      site_id: 202
-      vrf_id: 200
-      ospf_instance: 200
-
-    edge3x01:
-      site_id: 203
-      vrf_id: 200
-      ospf_instance: 200
+# certificates:
+#   rsa_key: SDWAN.key
+#   root_cert: SDWAN.pem
+#   signed_cert: NewCertificate.crt

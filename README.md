@@ -13,22 +13,24 @@ After `netlab up`, from the `automate_sdwan` directory:
 Check the static values that netlab cannot derive: site IDs, OSPF areas, VRF ID,
 credentials, and timing. Edit to match your lab before generating.
 
-### 2. Generate the variables file from the netlab topology
+### 2. Generate variables and run first-boot in one step
 
 ```bash
-python sdwan_automation.py generate -t ../host_vars -o sdwan_variables-test.yml
+python sdwan_automation.py deploy --host-vars ../host_vars
 ```
 
-This merges `sdwan_variables-base.yml` with the IPs and interfaces netlab assigned.
+This generates the variables file from the netlab topology and immediately runs
+first-boot automation on Manager, Validator, Controller, and Edges in sequence.
 
-### 3. Run first-boot on all SD-WAN components
+Alternatively, run the two steps separately:
 
 ```bash
+# 2a. Generate the variables file
+python sdwan_automation.py generate --host-vars ../host_vars -o sdwan_variables-test.yml
+
+# 2b. Run first-boot on all SD-WAN components
 python sdwan_automation.py -f sdwan_variables-test.yml all
 ```
-
-This configures Manager, Validator, Controller, and Edges in sequence and enrolls
-all certificates.
 
 ### 4. Apply edge routing
 
@@ -50,6 +52,7 @@ communication between the SD-WAN fabric and the LAN devices connected to each ed
 - OSPF/BGP extra routing config for edges (`--extra-routing`)
 - Optional config file push for each component
 - `generate` subcommand to produce the variables file from netlab topology files
+- `deploy` subcommand to generate variables and run first-boot in a single call (ideal for Ansible)
 - Structured console output and rotating log files
 - Sastre SDK CLI passthrough via `sdk` subcommand
 
@@ -72,10 +75,10 @@ pip install -r requirements.txt
 
 The automation is driven by a single YAML variables file. When working with a
 netlab topology, this file is generated automatically (see [Generate Variables](#generate-variables-from-netlab-topology)).
-For non-netlab setups, use `sdwan_variables.yml` as a starting template and edit
+For non-netlab setups, use `sdwan_variables.example.yml` as a starting template and edit
 it manually.
 
-### sdwan_variables-base.yml
+### sdwan_base_variables.yml
 
 This file contains the **static values** that cannot be derived from the netlab
 topology. It is the only file you need to edit before running `generate`.
@@ -102,7 +105,7 @@ win** — if a key exists here, it will not be overwritten by the topology data.
 Do not put IPs, interface names, or BGP ASNs here — those are all read from the
 netlab topology files and filled in automatically by `generate`.
 
-### sdwan_variables.yml (generated output)
+### sdwan_variables.gen.yml (generated output)
 
 This is the file consumed by all automation subcommands. When using netlab, it
 is produced by `generate` and should not be edited manually (changes will be lost
@@ -185,17 +188,17 @@ Produces the variables file by merging `sdwan_variables-base.yml` with the IPs
 and interfaces assigned by netlab. Run this after every `netlab up`.
 
 ```bash
-python sdwan_automation.py generate -t ../host_vars
-python sdwan_automation.py generate -t ../host_vars -o sdwan_variables-test.yml
+python sdwan_automation.py generate --host-vars ../host_vars
+python sdwan_automation.py generate --host-vars ../host_vars -o sdwan_variables-test.yml
 ```
 
 Options:
 
-| Short | Long | Default | Description |
-| --- | --- | --- | --- |
-| `-t` | `--host-vars` | *(required)* | Path to the host_vars (topology) directory |
-| `-b` | `--base` | `<script dir>/sdwan_variables-base.yml` | Base YAML with static values |
-| `-o` | `--output` | `sdwan_variables-test.yml` in current directory | Output file |
+| Flag | Default | Description |
+| --- | --- | --- |
+| `--host-vars` | *(required)* | Path to the host_vars (topology) directory |
+| `-b` / `--base` | `<script dir>/sdwan_base_variables.yml` | Base YAML with static values |
+| `-o` / `--output` | `sdwan_variables.gen.yml` | Output file |
 
 #### How device and interface mapping works
 
@@ -275,13 +278,50 @@ This must come **before** the subcommand:
 
 ```bash
 python sdwan_automation.py -f sdwan_variables-test.yml all
-python sdwan_automation.py -f sdwan_variables-test.yml edges all --extra-routing
+python sdwan_automation.py --variables-file sdwan_variables-test.yml edges all --extra-routing
 python sdwan_automation.py -f sdwan_variables-test.yml manager --first-boot
+```
+
+### Deploy (Generate + First-Boot in one step)
+
+Generates the variables file from the netlab topology and immediately runs
+first-boot on all components. This is the single command needed for a netlab
+deployment:
+
+```bash
+python sdwan_automation.py deploy --host-vars ../host_vars
+python sdwan_automation.py deploy --host-vars ../host_vars -b sdwan_base_netlab.yml -o sdwan_variables-netlab.gen.yml
+```
+
+Options:
+
+| Flag | Default | Description |
+| --- | --- | --- |
+| `--host-vars` | *(required)* | Path to the host_vars (topology) directory |
+| `-b` / `--base` | `<script dir>/sdwan_base_variables.yml` | Base YAML with static values |
+| `-o` / `--output` | `sdwan_variables-netlab.gen.yml` | Output variables file (also loaded for automation) |
+| `-v` / `--verbose` | — | Enable verbose logging output |
+
+The variables file written by `deploy` can be passed to subsequent subcommands
+using `-f` if you need to re-run individual steps later.
+
+Ansible simplification — instead of two separate tasks:
+
+```yaml
+- command: sdwan_automation.py generate --host-vars /host_vars -b sdwan_base_netlab.yml -o sdwan_variables-netlab.gen.yml
+- command: sdwan_automation.py -f sdwan_variables-netlab.gen.yml all
+```
+
+a single task now suffices:
+
+```yaml
+- command: sdwan_automation.py deploy --host-vars /host_vars -b sdwan_base_netlab.yml -o sdwan_variables-netlab.gen.yml
 ```
 
 ### All Components (First-Boot)
 
 Runs first-boot in sequence: Manager → Validator → Controller → Edges.
+Use this when the variables file already exists (e.g., after a previous `generate` run).
 
 ```bash
 python sdwan_automation.py -f sdwan_variables-test.yml all
@@ -346,7 +386,7 @@ Add `-v` to any subcommand for verbose console output.
 
 - `sdwan_automation.py`: CLI entry point
 - `sdwan_variables-base.yml`: static values you maintain manually (edited before each lab run)
-- `sdwan_variables.yml`: production variables file (edit manually for non-netlab setups)
+- `sdwan_variables.example.yml`: production variables file (edit manually for non-netlab setups)
 - `components/`: automation flows per component
 - `utils/generate_sdwan_vars.py`: netlab topology → YAML generator (used by `generate` subcommand)
 - `utils/sdwan_config.py`: config assembly (loads the variables file at runtime)

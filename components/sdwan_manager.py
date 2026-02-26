@@ -1,4 +1,3 @@
-
 from utils import sdwan_config as settings
 from utils.netmiko import (
     bootstrap_initial_config,

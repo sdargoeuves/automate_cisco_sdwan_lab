@@ -192,6 +192,7 @@ def run(base_path: Path, host_vars_path: Path, output_path: Path) -> None:
 
     # Read shared component values — consumed here, not written to output
     component_site_id = config["devices"].pop("component_site_id", None)
+    vpn_id = config["devices"].pop("vpn_id", None)
     _api_ready_secs = config.get("timing", {}).pop(
         "manager_api_ready_timeout_seconds", None
     )
@@ -200,6 +201,7 @@ def run(base_path: Path, host_vars_path: Path, output_path: Path) -> None:
     )
 
     # Process topology files ──────────────────────────────────────────────────
+    print(f"Base     → {base_path}")
     print(f"Scanning {host_vars_path}/*/topology.json ...")
     print(f"  Transport node matching: MPLS='{mpls_node}', inet='{inet_node}' (regex)")
 
@@ -248,6 +250,9 @@ def run(base_path: Path, host_vars_path: Path, output_path: Path) -> None:
 
             elif kind == "cisco_c8000v":
                 dynamic = process_edge(topo, mpls_node=mpls_node, inet_node=inet_node)
+                if vpn_id is not None:
+                    dynamic.setdefault("vrf_id", vpn_id)
+                    dynamic.setdefault("ospf_instance", vpn_id)
                 base_edge = config["devices"]["edges"].get(device_name, {})
                 config["devices"]["edges"][device_name] = {
                     **dynamic,

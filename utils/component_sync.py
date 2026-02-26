@@ -1,4 +1,3 @@
-
 from utils import sdwan_config as settings
 from utils.manager_api_status import (
     get_out_of_sync_controllers,
@@ -45,7 +44,8 @@ def reboot_out_of_sync_components(
         return
 
     out.warning(
-        "Components remain out of sync; a reboot might help, code is ready but not applied at the moment to do this automatically."
+        "Components remain out of sync; we will attempt a reboot of: "
+        + ", ".join(_format_component_label(item) for item in still_out_of_sync)
     )
     for item in still_out_of_sync:
         system_ip = item.get("system-ip")

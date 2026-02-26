@@ -1,59 +1,23 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# AUTO-GENERATED FILE — DO NOT EDIT MANUALLY
+#
+# Generated : 2026-02-25 12:36 UTC
+# Source    : /home/sa/code/quick-netlab-lab/cisco-sdwan-lab/automate_sdwan/sdwan_netlab_base.yml
+#
+# This file is rebuilt every time the following command is run:
+#   python sdwan_automation.py generate
+#
+# To make permanent changes, update the base variables file instead:
+#   /home/sa/code/quick-netlab-lab/cisco-sdwan-lab/automate_sdwan/sdwan_netlab_base.yml
+# ─────────────────────────────────────────────────────────────────────────────
+
 shared:
   org: ipf-netlab
   username: admin
   default_password: admin
   updated_password: admin@123
   port: '443'
-timing:
-  wait_before_automating_validator: 60
-  wait_before_automating_controller: 120
-  wait_before_activating_edge: 60
-  wait_after_generating_payg_license: 30
-  edge_cert_poll_interval_seconds: 10
-  edge_cert_poll_timeout_seconds: 240
-  wait_csr_generation: 30
-  csr_generation_max_attempts: 3
-  csr_generation_retry_wait_seconds: 5
-  csr_file_timeout_seconds: 60
-  csr_file_poll_interval_seconds: 5
-  netmiko_connect_retry_wait_seconds: 120
-  netmiko_connect_retry_max_seconds: 900
-  netmiko_connect_lockout_retry_interval: 180
-  netmiko_increased_read_timeout: 60
-  netmiko_config_retry_attempts: 2
-  netmiko_config_retry_wait_seconds: 20
-  netmiko_commit_read_timeout: 120
-  netmiko_commit_retry_attempts: 2
-  netmiko_commit_retry_wait_seconds: 30
 devices:
-  manager:
-    mgmt_ip: 10.194.56.130
-    system_ip: 10.194.56.130
-    interface_name: eth1
-    interface_ip: 10.254.0.1
-    interface_prefix: 30
-    route_gw: 10.254.0.2
-    interface_desc: sdwan-manager to inet0
-    site_id: 255
-    api_ready_timeout_minutes: 15
-  controller:
-    mgmt_ip: 10.194.56.131
-    system_ip: 10.194.56.131
-    interface_name: eth1
-    interface_ip: 10.254.0.9
-    interface_prefix: 30
-    route_gw: 10.254.0.10
-    interface_desc: sdwan-controller to inet0
-    site_id: 255
-  validator:
-    mgmt_ip: 10.194.56.132
-    system_ip: 10.194.56.132
-    interface_name: ge0/0
-    interface_ip: 10.254.0.5
-    interface_prefix: 30
-    route_gw: 10.254.0.6
-    interface_desc: sdwan-validator to inet0
-    site_id: 255
   edges:
     edge1x01:
       mgmt_ip: 10.194.56.133
@@ -82,9 +46,9 @@ devices:
         lan_mask: 255.255.255.252
         lan_gw: 10.254.0.18
         lan_desc: edge1x01 to d1xr02
-      site_id: 201
       vrf_id: 200
       ospf_instance: 200
+      site_id: 201
     edge2x01:
       mgmt_ip: 10.194.56.134
       system_ip: 10.194.56.134
@@ -107,9 +71,9 @@ devices:
         lan_mask: 255.255.255.252
         lan_gw: 10.254.0.30
         lan_desc: edge2x01 to d2xr01
-      site_id: 202
       vrf_id: 200
       ospf_instance: 200
+      site_id: 202
     edge3x01:
       mgmt_ip: 10.194.56.135
       system_ip: 10.194.56.135
@@ -137,6 +101,55 @@ devices:
         lan_mask: 255.255.255.252
         lan_gw: 10.254.0.46
         lan_desc: edge3x01 to d3xr02
-      site_id: 203
       vrf_id: 200
       ospf_instance: 200
+      site_id: 203
+  controller:
+    mgmt_ip: 10.194.56.131
+    system_ip: 10.194.56.131
+    interface_name: eth1
+    interface_ip: 10.254.0.9
+    interface_prefix: 30
+    route_gw: 10.254.0.10
+    interface_desc: sdwan-controller to inet0
+    site_id: 255
+  manager:
+    mgmt_ip: 10.194.56.130
+    system_ip: 10.194.56.130
+    interface_name: eth1
+    interface_ip: 10.254.0.1
+    interface_prefix: 30
+    route_gw: 10.254.0.2
+    interface_desc: sdwan-manager to inet0
+    site_id: 255
+    api_ready_timeout_minutes: 15
+  validator:
+    mgmt_ip: 10.194.56.132
+    system_ip: 10.194.56.132
+    interface_name: ge0/0
+    interface_ip: 10.254.0.5
+    interface_prefix: 30
+    route_gw: 10.254.0.6
+    interface_desc: sdwan-validator to inet0
+    site_id: 255
+timing:
+  wait_before_automating_validator_seconds: 60
+  wait_before_automating_controller_seconds: 120
+  wait_before_activating_edge_seconds: 60
+  wait_after_generating_payg_license_seconds: 30
+  edge_cert_poll_interval_seconds: 10
+  edge_cert_poll_timeout_seconds: 240
+  wait_csr_generation_seconds: 30
+  csr_generation_max_attempts: 3
+  csr_generation_retry_wait_seconds: 5
+  csr_file_timeout_seconds: 60
+  csr_file_poll_interval_seconds: 5
+  netmiko_connect_retry_wait_seconds: 120
+  netmiko_connect_retry_max_seconds: 900
+  netmiko_connect_lockout_retry_interval_seconds: 180
+  netmiko_increased_read_timeout_seconds: 60
+  netmiko_config_retry_attempts: 2
+  netmiko_config_retry_wait_seconds: 20
+  netmiko_commit_read_timeout_seconds: 120
+  netmiko_commit_retry_attempts: 2
+  netmiko_commit_retry_wait_seconds: 30
