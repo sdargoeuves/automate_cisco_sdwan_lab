@@ -183,7 +183,7 @@ def run(base_path: Path, host_vars_path: Path, output_path: Path) -> None:
         config = yaml.safe_load(f)
 
     config.setdefault("devices", {})
-    config["devices"].setdefault("edges", {})
+    config["devices"]["edges"] = config["devices"].get("edges") or {}
 
     # Read generator config — stripped before writing output
     gen_cfg = config.pop("generate", {})
@@ -193,6 +193,7 @@ def run(base_path: Path, host_vars_path: Path, output_path: Path) -> None:
     # Read shared component values — consumed here, not written to output
     component_site_id = config["devices"].pop("component_site_id", None)
     vpn_id = config["devices"].pop("vpn_id", None)
+    edge_site_id_start = int(config["devices"].pop("edge_site_id_start", 100))
     _api_ready_secs = config.get("timing", {}).pop(
         "manager_api_ready_timeout_seconds", None
     )
@@ -204,6 +205,8 @@ def run(base_path: Path, host_vars_path: Path, output_path: Path) -> None:
     print(f"Base     → {base_path}")
     print(f"Scanning {host_vars_path}/*/topology.json ...")
     print(f"  Transport node matching: MPLS='{mpls_node}', inet='{inet_node}' (regex)")
+
+    discovered_edges: set[str] = set()
 
     for topo_file in sorted(host_vars_path.glob("*/topology.json")):
         device_name = topo_file.parent.name
@@ -258,6 +261,7 @@ def run(base_path: Path, host_vars_path: Path, output_path: Path) -> None:
                     **dynamic,
                     **base_edge,
                 }
+                discovered_edges.add(device_name)
                 print(f"  [ok] {device_name} → devices.edges.{device_name}")
 
             else:
@@ -266,6 +270,21 @@ def run(base_path: Path, host_vars_path: Path, output_path: Path) -> None:
 
         except (KeyError, IndexError, ValueError) as exc:
             print(f"  [WARN] skipping {device_name}: {exc}", file=sys.stderr)
+
+    # Post-process edges ──────────────────────────────────────────────────────
+    edges = config["devices"]["edges"]
+
+    # Remove stale base-file entries that have no corresponding topology device
+    stale = [n for n in list(edges.keys()) if n not in discovered_edges]
+    for name in stale:
+        del edges[name]
+        print(f"  [pruned] '{name}' from base file — not found in topology", file=sys.stderr)
+
+    # Auto-assign site_id to any discovered edge that doesn't have one
+    for idx, edge_name in enumerate(sorted(discovered_edges), start=1):
+        if "site_id" not in edges[edge_name]:
+            edges[edge_name]["site_id"] = edge_site_id_start + idx
+            print(f"  [auto site_id] {edge_name} → {edge_site_id_start + idx}")
 
     # Write output ────────────────────────────────────────────────────────────
     output_path.parent.mkdir(parents=True, exist_ok=True)

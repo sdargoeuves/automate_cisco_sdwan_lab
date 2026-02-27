@@ -22,14 +22,15 @@ shared:
 
 devices:
   component_site_id: 255   # shared site_id for manager, controller, and validator
+  edge_site_id_start: 100  # auto site_ids = edge_site_id_start + n (1-indexed, sorted by name)
   vpn_id: 100              # shared VRF/VPN and OSPF instance ID for all edges
-  edges:
-    edge1:
-      site_id: 101
-    edge2:
-      site_id: 102
-    edge3:
-      site_id: 103
+
+  # edges:
+  #   # Edge devices are auto-discovered from the topology (clab.kind == cisco_c8000v).
+  #   # site_ids are auto-assigned unless overridden here per device. 
+  #   # To override, uncomment and set the site_id for the edge device(s) you want to customize. Make sure to use the correct name as defined in the topology file (e.g., "edge1", "edge2", etc.).
+  #   myedge:
+  #     site_id: 201
 
 
 
@@ -45,6 +46,7 @@ timing:
   manager_api_ready_timeout_seconds: 900        # how long to wait for the manager API after first boot
 
   # Edge automation
+  edge_stagger_seconds: 2          # delay between launching each edge in parallel (seconds)
   wait_before_activating_edge_seconds: 60
   wait_after_generating_payg_license_seconds: 30
   edge_cert_poll_interval_seconds: 10

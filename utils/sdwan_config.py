@@ -69,6 +69,7 @@ NETMIKO_CONNECT_LOCKOUT_RETRY_INTERVAL_SECONDS: int = None
 CSR_GENERATION_MAX_ATTEMPTS: int = None
 CSR_GENERATION_RETRY_WAIT_SECONDS: int = None
 CSR_FILE_POLL_INTERVAL_SECONDS: int = None
+EDGE_STAGGER_SECONDS: float = None
 RSA_KEY: str = None
 ROOT_CERT: str = None
 SIGNED_CERT: str = None
@@ -411,7 +412,7 @@ def load(variables_path=None) -> None:
     global NETMIKO_CONNECT_RETRY_WAIT_SECONDS, NETMIKO_CONNECT_RETRY_MAX_SECONDS
     global NETMIKO_CONNECT_LOCKOUT_RETRY_INTERVAL_SECONDS
     global CSR_GENERATION_MAX_ATTEMPTS, CSR_GENERATION_RETRY_WAIT_SECONDS
-    global CSR_FILE_POLL_INTERVAL_SECONDS
+    global CSR_FILE_POLL_INTERVAL_SECONDS, EDGE_STAGGER_SECONDS
     global RSA_KEY, ROOT_CERT, SIGNED_CERT, VALIDATOR_IP, CONTROLLER_IP
     global MANAGER_DEVICE, VALIDATOR_DEVICE, CONTROLLER_DEVICE
     global EDGE_GROUP, EDGE_DEVICES, EDGE_NAMES
@@ -484,6 +485,7 @@ def load(variables_path=None) -> None:
     CSR_FILE_POLL_INTERVAL_SECONDS = int(
         _timing.get("csr_file_poll_interval_seconds", 5)
     )
+    EDGE_STAGGER_SECONDS = float(_timing.get("edge_stagger_seconds", 2.0))
 
     RSA_KEY = _certs.get("rsa_key", "SDWAN.key")
     ROOT_CERT = _certs.get("root_cert", "SDWAN.pem")

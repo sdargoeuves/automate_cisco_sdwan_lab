@@ -5,7 +5,6 @@ Edge (vEdge/C8000V) automation workflow:
 - Copy root cert via SCP, install it, and activate using PAYG token.
 """
 
-import random
 import re
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -339,7 +338,7 @@ def run_edges_automation(
     config_file: Optional[str] = None,
     cert: bool = False,
     extra_routing: bool = False,
-    max_jitter_seconds: float = 10.0,
+    stagger_seconds: float = 2.0,
 ) -> None:
     out = Output(__name__)
     out.header("Automation: EDGES")
@@ -350,28 +349,22 @@ def run_edges_automation(
 
     edge_name_by_id = {id(cfg): name for name, cfg in settings.EDGES.items()}
 
-    def _run_with_jitter(edge_config, edge_name):
-        jitter = random.uniform(0, max_jitter_seconds)
-        out.step(f"[{edge_name}] Starting in {jitter:.1f}s...")
-        time.sleep(jitter)
-        run_edge_automation(
-            edge_config,
-            initial_config=initial_config,
-            config_file=config_file,
-            cert=cert,
-            extra_routing=extra_routing,
-            edge_name=edge_name,
-        )
-
     with ThreadPoolExecutor(max_workers=len(edge_configs)) as pool:
-        futures = {
-            pool.submit(
-                _run_with_jitter,
+        futures = {}
+        for i, edge_config in enumerate(edge_configs):
+            if i > 0:
+                time.sleep(stagger_seconds)
+            edge_name = edge_name_by_id.get(id(edge_config), "edge")
+            out.step(f"[{edge_name}] Starting...")
+            futures[pool.submit(
+                run_edge_automation,
                 edge_config,
-                edge_name_by_id.get(id(edge_config), "edge"),
-            ): edge_name_by_id.get(id(edge_config), "edge")
-            for edge_config in edge_configs
-        }
+                initial_config=initial_config,
+                config_file=config_file,
+                cert=cert,
+                extra_routing=extra_routing,
+                edge_name=edge_name,
+            )] = edge_name
         failed = []
         for future in as_completed(futures):
             name = futures[future]

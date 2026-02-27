@@ -76,7 +76,7 @@ def _run_all(out: Output) -> None:
     if not edge_configs:
         out.warning("No edges defined in sdwan_variables.yml")
     else:
-        run_edges_automation(edge_configs, initial_config=True, cert=True)
+        run_edges_automation(edge_configs, initial_config=True, cert=True, stagger_seconds=settings.EDGE_STAGGER_SECONDS)
 
     out.header("All Components Complete")
     out.success(
@@ -439,6 +439,7 @@ def main():
             config_file=args.config_file,
             cert=args.cert,
             extra_routing=args.extra_routing,
+            stagger_seconds=settings.EDGE_STAGGER_SECONDS,
         )
         out.header("Edges Complete")
         out.success("Edge automation finished")
