@@ -4,6 +4,20 @@ Automate first-boot configuration and certificate enrollment for a Cisco SD-WAN 
 (Manager, Validator, Controller, Edges). Primarily aimed at [netlab](https://netlab.tools)
 users, but works for any SD-WAN deployment where management IPs are reachable.
 
+## Credits
+
+This project is heavily based on the video series
+[Exploring SDWAN 20.15: A Student Driven Video Series](https://www.youtube.com/playlist?list=PLlJgzlAyjsjMfZI4SVoX7bY8f9X-PrSnY)
+by **Terry Vinson**. The goal of this script is to automate the manual configuration steps
+demonstrated in those videos, so you can get a working SD-WAN lab without going through
+each step by hand.
+
+In the video series, IP addressing and interface configuration are done manually. In this
+project, that work is handled by netlab — though you can also specify it directly in the
+[variables file](#configuration) if you are not using netlab.
+
+---
+
 ## TL;DR — Quick Start with `netlab`
 
 After `netlab up`, from the `automate_sdwan` directory:
@@ -15,7 +29,7 @@ Edge devices are auto-discovered from the topology and site IDs are auto-assigne
 (`edge_site_id_start + n`, sorted alphabetically — default gives 101, 102, 103, …).
 No need to list your edge device names manually.
 
-### 2. Generate variables and run first-boot in one step
+### 2. Run `deploy` — generate variables and run first-boot
 
 ```bash
 python sdwan_automation.py deploy --host-vars /path/to/netlab/host_vars
@@ -62,8 +76,9 @@ pip install -r requirements.txt
 
 ## Configuration
 
-The automation is driven by a single YAML variables file. For non-netlab setups, see
-`sdwan_variables.example.yml` for the full structure.
+The automation is driven by a single YAML variables file. Not using netlab? Take a look at
+`sdwan_variables.example.yml` — it shows the complete structure and every value you will
+need to fill in manually: management IPs, system IPs, interface names, and BGP ASNs.
 
 ### sdwan_base_variables.yml
 
@@ -88,12 +103,12 @@ Do not set IPs, interface names, or BGP ASNs here — those come from the netlab
 Produced by `generate`/`deploy`; consumed by all automation subcommands. Do not edit
 manually. Combines `sdwan_base_variables.yml` with management IPs, system IPs,
 data-plane interface names/IPs/gateways (MPLS, internet, LAN), and BGP ASNs from the
-topology. See `sdwan_variables.example.yml` for the full structure.
+topology. See `sdwan_variables.example.yml` for the complete structure and all available keys.
 
 ## Usage
 
-Run from the `automate_sdwan` directory. Use `-f <file>` before any subcommand to load
-a specific variables file instead of the default.
+Run from the `automate_sdwan` directory. Use `--variables-file <file>` (or `-f` for short)
+before any subcommand to load a specific variables file instead of the default.
 
 ### Generate Variables from Netlab Topology
 
@@ -167,23 +182,25 @@ python sdwan_automation.py deploy --host-vars ../host_vars -b sdwan_base_netlab.
 | `-o` / `--output` | `sdwan_variables-netlab.gen.yml` | Output variables file (also loaded for automation) |
 | `-v` / `--verbose` | — | Enable verbose logging output |
 
-The output file can be passed to subsequent subcommands with `-f` to re-run individual steps.
+The output file can be passed to subsequent subcommands with `--variables-file` to re-run individual steps.
 
 ### All Components (First-Boot)
 
-Runs first-boot in sequence: Manager → Validator → Controller → Edges.
+Runs first-boot in sequence: Manager → Validator → Controller → Edges. Use this when
+you have already run `generate` separately, or to re-run first-boot on an existing
+variables file.
 
 ```bash
-python sdwan_automation.py -f sdwan_variables-test.yml all
+python sdwan_automation.py --variables-file sdwan_variables-test.yml all
 ```
 
 ### Manager | Validator | Controller
 
 ```bash
-python sdwan_automation.py -f sdwan_variables-test.yml [manager|validator|controller] --first-boot
-python sdwan_automation.py -f sdwan_variables-test.yml [manager|validator|controller] --cert
-python sdwan_automation.py -f sdwan_variables-test.yml [manager|validator|controller] --initial-config
-python sdwan_automation.py -f sdwan_variables-test.yml [manager|validator|controller] --config-file myconfig.txt
+python sdwan_automation.py --variables-file sdwan_variables-test.yml [manager|validator|controller] --first-boot
+python sdwan_automation.py --variables-file sdwan_variables-test.yml [manager|validator|controller] --cert
+python sdwan_automation.py --variables-file sdwan_variables-test.yml [manager|validator|controller] --initial-config
+python sdwan_automation.py --variables-file sdwan_variables-test.yml [manager|validator|controller] --config-file myconfig.txt
 ```
 
 ### Edges (cEdge)
@@ -191,11 +208,11 @@ python sdwan_automation.py -f sdwan_variables-test.yml [manager|validator|contro
 Targets are required and can be a comma-separated list or `all`:
 
 ```bash
-python sdwan_automation.py -f sdwan_variables-test.yml edges all --first-boot
-python sdwan_automation.py -f sdwan_variables-test.yml edges all --extra-routing
-python sdwan_automation.py -f sdwan_variables-test.yml edges edge1,edge2 --initial-config
-python sdwan_automation.py -f sdwan_variables-test.yml edges edge1 --cert
-python sdwan_automation.py -f sdwan_variables-test.yml edges edge1 --config-file myconfig.txt
+python sdwan_automation.py --variables-file sdwan_variables-test.yml edges all --first-boot
+python sdwan_automation.py --variables-file sdwan_variables-test.yml edges all --extra-routing
+python sdwan_automation.py --variables-file sdwan_variables-test.yml edges edge1,edge2 --initial-config
+python sdwan_automation.py --variables-file sdwan_variables-test.yml edges edge1 --cert
+python sdwan_automation.py --variables-file sdwan_variables-test.yml edges edge1 --config-file myconfig.txt
 ```
 
 Edge options:
@@ -213,7 +230,7 @@ edge in the variables file.
 ### Show Devices Status
 
 ```bash
-python sdwan_automation.py -f sdwan_variables-test.yml show devices
+python sdwan_automation.py --variables-file sdwan_variables-test.yml show devices
 ```
 
 ### SDK passthrough
@@ -221,11 +238,11 @@ python sdwan_automation.py -f sdwan_variables-test.yml show devices
 Run any Sastre SDK CLI command without retyping credentials:
 
 ```bash
-python sdwan_automation.py -f sdwan_variables-test.yml sdk show dev
-python sdwan_automation.py -f sdwan_variables-test.yml sdk backup all --workdir backups
+python sdwan_automation.py --variables-file sdwan_variables-test.yml sdk show dev
+python sdwan_automation.py --variables-file sdwan_variables-test.yml sdk backup all --workdir backups
 ```
 
-Add `-v` to any subcommand for verbose output.
+Add `-v` to most subcommands for verbose output.
 
 ## Logs
 
