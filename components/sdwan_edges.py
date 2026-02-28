@@ -5,7 +5,6 @@ Edge (vEdge/C8000V) automation workflow:
 - Copy root cert via SCP, install it, and activate using PAYG token.
 """
 
-import random
 import re
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -43,8 +42,8 @@ def generate_payg_licenses(
     wait_seconds: int = None,
 ) -> list[dict]:
     if wait_seconds is None:
-        wait_seconds = settings.WAIT_AFTER_GENERATING_PAYG_LICENSE
-    out.header(f"EDGE - Generate PAYG Licenses")
+        wait_seconds = settings.WAIT_AFTER_GENERATING_PAYG_LICENSE_SECONDS
+    out.header("EDGE - Generate PAYG Licenses")
     try:
         response = sdk_call_json(
             manager_config,
@@ -76,6 +75,7 @@ def generate_payg_licenses(
     )
     return licenses
 
+
 def _clear_logs(net_connect) -> None:
     # Clear logs once
     out.step("Clearing device logging buffer...")
@@ -83,15 +83,16 @@ def _clear_logs(net_connect) -> None:
     net_connect.send_command_timing("")  # Send enter to confirm
     time.sleep(1)  # Wait for clear to complete
 
+
 def _install_root_cert(net_connect, use_new_roots: bool = False) -> None:
     _clear_logs(net_connect)
     out.step("Installing root certificate on edge...")
-    
+
     cmd = f"request platform software sdwan root-cert-chain install bootflash:sdwan/{settings.ROOT_CERT}"
     if use_new_roots:
         cmd += " new-roots"
         out.info("Using 'new-roots' option for certificate installation")
-    
+
     output = net_connect.send_command_timing(
         cmd,
         strip_prompt=False,
@@ -116,24 +117,26 @@ def _wait_for_edge_cert(
         "Waiting for root CA chain to be installed "
         f"(poll {poll_interval_seconds}s, timeout {timeout_seconds}s)..."
     )
-    
+
     start = time.time()
     while True:
-        output = net_connect.send_command_timing("show logging | include ROOT_CERT_CHAIN_INSTALLED")
-        
+        output = net_connect.send_command_timing(
+            "show logging | include ROOT_CERT_CHAIN_INSTALLED"
+        )
+
         # Check for new-roots requirement
         if "new-roots" in output.lower():
             out.warning("Certificate installation requires 'new-roots' option")
             return False
-        
+
         if "%CERT-5-ROOT_CERT_CHAIN_INSTALLED" in output:
             out.success("Root CA chain status is Installed.")
             return True
-            
+
         if time.time() - start >= timeout_seconds:
             out.warning("Root CA chain did not reach Installed before timeout.")
             return False
-            
+
         out.spinner_wait("Next root CA chain check", poll_interval_seconds)
 
 
@@ -173,8 +176,8 @@ def _activate_edge_license(
                 out.step("Re-installing root certificate before retrying activation...")
                 _install_root_cert(net_connect)
                 out.spinner_wait(
-                    f"Waiting {settings.WAIT_BEFORE_ACTIVATING_EDGE}s before retrying activation...",
-                    settings.WAIT_BEFORE_ACTIVATING_EDGE,
+                    f"Waiting {settings.WAIT_BEFORE_ACTIVATING_EDGE_SECONDS}s before retrying activation...",
+                    settings.WAIT_BEFORE_ACTIVATING_EDGE_SECONDS,
                 )
                 continue
             out.error("PAYG activation failed after retries.")
@@ -222,7 +225,7 @@ def run_edge_automation(
             initial_config=config.initial_config,
             config_mode_command="config-transaction",
             commit_command="commit",
-            read_timeout=settings.NETMIKO_INCREASED_READ_TIMEOUT,
+            read_timeout=settings.NETMIKO_INCREASED_READ_TIMEOUT_SECONDS,
         )
     else:
         # Try configured password first, then default if it fails
@@ -260,7 +263,7 @@ def run_edge_automation(
             config_file,
             config_mode_command="config-transaction",
             commit_command="commit",
-            read_timeout=settings.NETMIKO_INCREASED_READ_TIMEOUT,
+            read_timeout=settings.NETMIKO_INCREASED_READ_TIMEOUT_SECONDS,
         )
 
     if extra_routing:
@@ -282,7 +285,7 @@ def run_edge_automation(
             extra_routing_config,
             config_mode_command="config-transaction",
             commit_command="commit",
-            read_timeout=settings.NETMIKO_INCREASED_READ_TIMEOUT,
+            read_timeout=settings.NETMIKO_INCREASED_READ_TIMEOUT_SECONDS,
         )
 
     if cert:
@@ -311,12 +314,14 @@ def run_edge_automation(
         ):
             net_connect.disconnect()
             raise SystemExit(1)
-        _install_root_cert(net_connect)        
+        _install_root_cert(net_connect)
         if not _wait_for_edge_cert(net_connect):
             out.step("Re-installing root certificate with 'new-roots' option...")
             _install_root_cert(net_connect, use_new_roots=True)
             if not _wait_for_edge_cert(net_connect):
-                out.error("Device certificate still not installed; aborting activation.")
+                out.error(
+                    "Device certificate still not installed; aborting activation."
+                )
                 net_connect.disconnect()
                 raise SystemExit(1)
         if not _activate_edge_license(net_connect, license_entry):
@@ -333,7 +338,7 @@ def run_edges_automation(
     config_file: Optional[str] = None,
     cert: bool = False,
     extra_routing: bool = False,
-    max_jitter_seconds: float = 10.0,
+    stagger_seconds: float = 2.0,
 ) -> None:
     out = Output(__name__)
     out.header("Automation: EDGES")
@@ -344,28 +349,22 @@ def run_edges_automation(
 
     edge_name_by_id = {id(cfg): name for name, cfg in settings.EDGES.items()}
 
-    def _run_with_jitter(edge_config, edge_name):
-        jitter = random.uniform(0, max_jitter_seconds)
-        out.step(f"[{edge_name}] Starting in {jitter:.1f}s...")
-        time.sleep(jitter)
-        run_edge_automation(
-            edge_config,
-            initial_config=initial_config,
-            config_file=config_file,
-            cert=cert,
-            extra_routing=extra_routing,
-            edge_name=edge_name,
-        )
-
     with ThreadPoolExecutor(max_workers=len(edge_configs)) as pool:
-        futures = {
-            pool.submit(
-                _run_with_jitter,
+        futures = {}
+        for i, edge_config in enumerate(edge_configs):
+            if i > 0:
+                time.sleep(stagger_seconds)
+            edge_name = edge_name_by_id.get(id(edge_config), "edge")
+            out.step(f"[{edge_name}] Starting...")
+            futures[pool.submit(
+                run_edge_automation,
                 edge_config,
-                edge_name_by_id.get(id(edge_config), "edge"),
-            ): edge_name_by_id.get(id(edge_config), "edge")
-            for edge_config in edge_configs
-        }
+                initial_config=initial_config,
+                config_file=config_file,
+                cert=cert,
+                extra_routing=extra_routing,
+                edge_name=edge_name,
+            )] = edge_name
         failed = []
         for future in as_completed(futures):
             name = futures[future]

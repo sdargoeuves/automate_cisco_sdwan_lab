@@ -20,12 +20,13 @@ import ipaddress
 import json
 import re
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 
 import yaml
 
-
 # ── IP helpers ────────────────────────────────────────────────────────────────
+
 
 def split_cidr(cidr: str) -> tuple:
     """Return (ip_str, prefix_len, mask_str) from a CIDR like '10.1.0.2/30'."""
@@ -39,6 +40,7 @@ def strip_prefix(cidr: str) -> str:
 
 
 # ── Name helpers ──────────────────────────────────────────────────────────────
+
 
 def eth_to_ge(ifname: str) -> str:
     """Translate a Linux eth interface name to the vBond ge notation.
@@ -65,6 +67,7 @@ def fix_desc(link_name: str) -> str:
 
 
 # ── Device processors ─────────────────────────────────────────────────────────
+
 
 def process_linux_device(topo: dict) -> dict:
     """Extract dynamic fields for manager, controller, or validator."""
@@ -117,24 +120,28 @@ def process_edge(topo: dict, mpls_node: str = "mpls", inet_node: str = "inet") -
         if any(re.search(mpls_node, node) for node in neighbor_nodes):
             ip, _, mask = split_cidr(iface["ipv4"])
             gw = strip_prefix(iface["neighbors"][0]["ipv4"])
-            result.update({
-                "mpls_interface": iface["ifname"],
-                "mpls_ip": ip,
-                "mpls_mask": mask,
-                "mpls_gw": gw,
-                "mpls_desc": fix_desc(iface["name"]),
-            })
+            result.update(
+                {
+                    "mpls_interface": iface["ifname"],
+                    "mpls_ip": ip,
+                    "mpls_mask": mask,
+                    "mpls_gw": gw,
+                    "mpls_desc": fix_desc(iface["name"]),
+                }
+            )
 
         elif any(re.search(inet_node, node) for node in neighbor_nodes):
             ip, _, mask = split_cidr(iface["ipv4"])
             gw = strip_prefix(iface["neighbors"][0]["ipv4"])
-            result.update({
-                "inet_interface": iface["ifname"],
-                "inet_ip": ip,
-                "inet_mask": mask,
-                "inet_gw": gw,
-                "inet_desc": fix_desc(iface["name"]),
-            })
+            result.update(
+                {
+                    "inet_interface": iface["ifname"],
+                    "inet_ip": ip,
+                    "inet_mask": mask,
+                    "inet_gw": gw,
+                    "inet_desc": fix_desc(iface["name"]),
+                }
+            )
 
         else:
             lan_ifaces.append(iface)
@@ -144,13 +151,15 @@ def process_edge(topo: dict, mpls_node: str = "mpls", inet_node: str = "inet") -
     for iface in lan_ifaces:
         ip, _, mask = split_cidr(iface["ipv4"])
         gw = strip_prefix(iface["neighbors"][0]["ipv4"])
-        lan_interfaces.append({
-            "lan_interface": iface["ifname"],
-            "lan_ip": ip,
-            "lan_mask": mask,
-            "lan_gw": gw,
-            "lan_desc": fix_desc(iface["name"]),
-        })
+        lan_interfaces.append(
+            {
+                "lan_interface": iface["ifname"],
+                "lan_ip": ip,
+                "lan_mask": mask,
+                "lan_gw": gw,
+                "lan_desc": fix_desc(iface["name"]),
+            }
+        )
     result["lan_interfaces"] = lan_interfaces
 
     return result
@@ -174,16 +183,30 @@ def run(base_path: Path, host_vars_path: Path, output_path: Path) -> None:
         config = yaml.safe_load(f)
 
     config.setdefault("devices", {})
-    config["devices"].setdefault("edges", {})
+    config["devices"]["edges"] = config["devices"].get("edges") or {}
 
     # Read generator config — stripped before writing output
     gen_cfg = config.pop("generate", {})
     mpls_node = gen_cfg.get("mpls_node", "mpls")
     inet_node = gen_cfg.get("inet_node", "inet")
 
+    # Read shared component values — consumed here, not written to output
+    component_site_id = config["devices"].pop("component_site_id", None)
+    vpn_id = config["devices"].pop("vpn_id", None)
+    edge_site_id_start = int(config["devices"].pop("edge_site_id_start", 100))
+    _api_ready_secs = config.get("timing", {}).pop(
+        "manager_api_ready_timeout_seconds", None
+    )
+    api_ready_minutes = (
+        int(_api_ready_secs) // 60 if _api_ready_secs is not None else None
+    )
+
     # Process topology files ──────────────────────────────────────────────────
+    print(f"Base     → {base_path}")
     print(f"Scanning {host_vars_path}/*/topology.json ...")
     print(f"  Transport node matching: MPLS='{mpls_node}', inet='{inet_node}' (regex)")
+
+    discovered_edges: set[str] = set()
 
     for topo_file in sorted(host_vars_path.glob("*/topology.json")):
         device_name = topo_file.parent.name
@@ -197,7 +220,11 @@ def run(base_path: Path, host_vars_path: Path, output_path: Path) -> None:
         try:
             if device_name == "sdwan-manager":
                 dynamic = process_linux_device(topo)
-                # base values win over dynamic (base has site_id, csr_file, etc.)
+                if component_site_id is not None:
+                    dynamic["site_id"] = component_site_id
+                if api_ready_minutes is not None:
+                    dynamic["api_ready_timeout_minutes"] = api_ready_minutes
+                # base values win over dynamic (base has csr_file, etc.)
                 config["devices"]["manager"] = {
                     **dynamic,
                     **config["devices"].get("manager", {}),
@@ -206,6 +233,8 @@ def run(base_path: Path, host_vars_path: Path, output_path: Path) -> None:
 
             elif device_name == "sdwan-controller":
                 dynamic = process_linux_device(topo)
+                if component_site_id is not None:
+                    dynamic["site_id"] = component_site_id
                 config["devices"]["controller"] = {
                     **dynamic,
                     **config["devices"].get("controller", {}),
@@ -214,6 +243,8 @@ def run(base_path: Path, host_vars_path: Path, output_path: Path) -> None:
 
             elif device_name == "sdwan-validator":
                 dynamic = process_validator(topo)
+                if component_site_id is not None:
+                    dynamic["site_id"] = component_site_id
                 config["devices"]["validator"] = {
                     **dynamic,
                     **config["devices"].get("validator", {}),
@@ -222,11 +253,15 @@ def run(base_path: Path, host_vars_path: Path, output_path: Path) -> None:
 
             elif kind == "cisco_c8000v":
                 dynamic = process_edge(topo, mpls_node=mpls_node, inet_node=inet_node)
+                if vpn_id is not None:
+                    dynamic.setdefault("vrf_id", vpn_id)
+                    dynamic.setdefault("ospf_instance", vpn_id)
                 base_edge = config["devices"]["edges"].get(device_name, {})
                 config["devices"]["edges"][device_name] = {
                     **dynamic,
                     **base_edge,
                 }
+                discovered_edges.add(device_name)
                 print(f"  [ok] {device_name} → devices.edges.{device_name}")
 
             else:
@@ -236,9 +271,40 @@ def run(base_path: Path, host_vars_path: Path, output_path: Path) -> None:
         except (KeyError, IndexError, ValueError) as exc:
             print(f"  [WARN] skipping {device_name}: {exc}", file=sys.stderr)
 
+    # Post-process edges ──────────────────────────────────────────────────────
+    edges = config["devices"]["edges"]
+
+    # Remove stale base-file entries that have no corresponding topology device
+    stale = [n for n in list(edges.keys()) if n not in discovered_edges]
+    for name in stale:
+        del edges[name]
+        print(f"  [pruned] '{name}' from base file — not found in topology", file=sys.stderr)
+
+    # Auto-assign site_id to any discovered edge that doesn't have one
+    for idx, edge_name in enumerate(sorted(discovered_edges), start=1):
+        if "site_id" not in edges[edge_name]:
+            edges[edge_name]["site_id"] = edge_site_id_start + idx
+            print(f"  [auto site_id] {edge_name} → {edge_site_id_start + idx}")
+
     # Write output ────────────────────────────────────────────────────────────
     output_path.parent.mkdir(parents=True, exist_ok=True)
+    generated_at = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+    banner = (
+        "# " + "─" * 77 + "\n"
+        "# AUTO-GENERATED FILE — DO NOT EDIT MANUALLY\n"
+        "#\n"
+        f"# Generated : {generated_at}\n"
+        f"# Source    : {base_path}\n"
+        "#\n"
+        "# This file is rebuilt every time the following command is run:\n"
+        "#   python sdwan_automation.py generate\n"
+        "#\n"
+        "# To make permanent changes, update the base variables file instead:\n"
+        f"#   {base_path}\n"
+        "# " + "─" * 77 + "\n\n"
+    )
     with output_path.open("w") as f:
+        f.write(banner)
         yaml.dump(
             config,
             f,

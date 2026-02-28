@@ -1,3 +1,7 @@
+# Project-specific .gitignore file for Cisco SD-WAN lab automation project
+*.gen.yml
+tests/
+
 # Python
 __pycache__/
 *.py[cod]

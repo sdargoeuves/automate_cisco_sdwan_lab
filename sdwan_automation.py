@@ -23,27 +23,67 @@ Usage:
     # Call the sdwan SDK CLI directly using `sdk` and passing all arguments after it:
     ./sdwan_automation.py sdk show dev
 
-    # Generate sdwan_variables.yml from netlab topology files:
-    ./sdwan_automation.py generate -t ../host_vars
-    ./sdwan_automation.py generate -t ../host_vars -o sdwan_variables-test.yml
+    # Generate sdwan_variables.gen.yml from netlab topology files:
+    ./sdwan_automation.py generate --host-vars ../host_vars
+    ./sdwan_automation.py generate --host-vars ../host_vars -o sdwan_variables.gen.yml
+
+    # Generate variables AND run first-boot on all components (single step for netlab):
+    ./sdwan_automation.py deploy --host-vars ../host_vars
+    ./sdwan_automation.py deploy --host-vars ../host_vars -b sdwan_base_netlab.yml -o sdwan_variables-netlab.gen.yml
 """
 
 import argparse
 import sys
-import time
 from pathlib import Path
 
-from utils.generate_sdwan_vars import run as _generate_vars, HERE as _GENERATE_DIR
-from utils import sdwan_config as settings
 from components.sdwan_controller import run_controller_automation
 from components.sdwan_edges import run_edges_automation
 from components.sdwan_manager import run_manager_automation
 from components.sdwan_validator import run_validator_automation
+from utils import sdwan_config as settings
 from utils.component_sync import reboot_out_of_sync_components
+from utils.generate_sdwan_vars import HERE as _GENERATE_DIR
+from utils.generate_sdwan_vars import run as _generate_vars
 from utils.logging import setup_logging
 from utils.manager_api_status import show_controller_status, show_edge_health_status
 from utils.output import Output
 from utils.sdwan_sdk import run_sdwan_cli
+
+
+def _run_all(out: Output) -> None:
+    """Run first-boot automation on all SD-WAN components in sequence.
+
+    Order: Manager → Validator → Controller → Edges.
+    Configurable wait times between each component are read from settings.
+    """
+    out.log_only("Run start component=all (first-boot on all components)")
+    out.banner("Cisco SD-WAN Full Automation Script")
+
+    run_manager_automation(settings.manager, initial_config=True, cert=True)
+    out.spinner_wait(
+        f"Waiting {settings.WAIT_BEFORE_AUTOMATING_VALIDATOR_SECONDS}s before starting Validator automation...",
+        settings.WAIT_BEFORE_AUTOMATING_VALIDATOR_SECONDS,
+    )
+    run_validator_automation(settings.validator, initial_config=True, cert=True)
+    out.spinner_wait(
+        f"Waiting {settings.WAIT_BEFORE_AUTOMATING_CONTROLLER_SECONDS}s before starting Controller automation...",
+        settings.WAIT_BEFORE_AUTOMATING_CONTROLLER_SECONDS,
+    )
+    run_controller_automation(settings.controller, initial_config=True, cert=True)
+    show_controller_status(settings.manager, out=out)
+
+    edge_configs = list(settings.EDGES.values())
+    if not edge_configs:
+        out.warning("No edges defined in sdwan_variables.yml")
+    else:
+        run_edges_automation(edge_configs, initial_config=True, cert=True, stagger_seconds=settings.EDGE_STAGGER_SECONDS)
+
+    out.header("All Components Complete")
+    out.success(
+        "First-boot automation finished for Manager, Validator, Controller, and Edges"
+    )
+    reboot_out_of_sync_components(settings.manager)
+    show_edge_health_status(settings.manager, out=out)
 
 
 def main():
@@ -55,7 +95,8 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument(
-        "-f", "--variables-file",
+        "-f",
+        "--variables-file",
         metavar="FILE",
         default=None,
         help=(
@@ -193,22 +234,56 @@ def main():
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
     generate_parser.add_argument(
-        "-b", "--base",
-        default=_GENERATE_DIR / "sdwan_variables-base.yml",
+        "-b",
+        "--base",
+        default=_GENERATE_DIR / "sdwan_base_variables.yml",
         metavar="FILE",
         help="Base YAML with static values",
     )
     generate_parser.add_argument(
-        "-t", "--host-vars",
+        "--host-vars",
         required=True,
         metavar="DIR",
         help="Path to the host_vars (topology) directory",
     )
     generate_parser.add_argument(
-        "-o", "--output",
-        default="sdwan_variables-test.yml",
+        "-o",
+        "--output",
+        default="sdwan_variables.gen.yml",
         metavar="FILE",
         help="Output YAML file",
+    )
+
+    deploy_parser = subparsers.add_parser(
+        "deploy",
+        help="Generate variables from netlab topology, then run first-boot on all components",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+    )
+    deploy_parser.add_argument(
+        "-b",
+        "--base",
+        default=_GENERATE_DIR / "sdwan_base_variables.yml",
+        metavar="FILE",
+        help="Base YAML with static values",
+    )
+    deploy_parser.add_argument(
+        "--host-vars",
+        required=True,
+        metavar="DIR",
+        help="Path to the host_vars (topology) directory",
+    )
+    deploy_parser.add_argument(
+        "-o",
+        "--output",
+        default="sdwan_variables-netlab.gen.yml",
+        metavar="FILE",
+        help="Output YAML file (also used as the variables file for automation)",
+    )
+    deploy_parser.add_argument(
+        "-v",
+        "--verbose",
+        action="store_true",
+        help="Enable verbose logging output",
     )
 
     all_parser = subparsers.add_parser(
@@ -263,54 +338,32 @@ def main():
         _generate_vars(Path(args.base), Path(args.host_vars), Path(args.output))
         return
 
-    settings.load(args.variables_file)
+    # Deploy: generate variables from netlab topology, then run first-boot on all components
+    if args.component == "deploy":
+        output_path = Path(args.output)
+        _generate_vars(Path(args.base), Path(args.host_vars), output_path)
+        settings.load(str(output_path))
+        setup_logging(args.verbose)
+        out = Output(__name__)
+        _run_all(out)
+        return
+
+    try:
+        settings.load(args.variables_file)
+    except FileNotFoundError as exc:
+        hint = (
+            "\nRun 'generate' or 'deploy' to create one, or use '-f <file>' to specify a path."
+            if args.variables_file is None
+            else ""
+        )
+        print(f"Error: {exc}{hint}", file=sys.stderr)
+        sys.exit(1)
     setup_logging(args.verbose)
     out = Output(__name__)
 
     # Handle "all" component - runs first-boot on everything
     if args.component == "all":
-        out.log_only("Run start component=all (first-boot on all components)")
-        out.banner("Cisco SD-WAN Full Automation Script")
-
-        run_manager_automation(
-            settings.manager,
-            initial_config=True,
-            cert=True,
-        )
-        out.spinner_wait(
-            f"Waiting {settings.WAIT_BEFORE_AUTOMATING_VALIDATOR}s before starting Validator automation...",
-            settings.WAIT_BEFORE_AUTOMATING_VALIDATOR,
-        )
-        run_validator_automation(
-            settings.validator,
-            initial_config=True,
-            cert=True,
-        )
-        out.spinner_wait(
-            f"Waiting {settings.WAIT_BEFORE_AUTOMATING_CONTROLLER}s before starting Controller automation...",
-            settings.WAIT_BEFORE_AUTOMATING_CONTROLLER,
-        )
-        run_controller_automation(
-            settings.controller,
-            initial_config=True,
-            cert=True,
-        )
-        show_controller_status(settings.manager, out=out)
-        edge_configs = list(settings.EDGES.values())
-        if not edge_configs:
-            out.warning("No edges defined in sdwan_variables.yml")
-        else:
-            run_edges_automation(
-                edge_configs,
-                initial_config=True,
-                cert=True,
-            )
-        out.header("All Components Complete")
-        out.success(
-            "First-boot automation finished for Manager, Validator, Controller, and Edges"
-        )
-        reboot_out_of_sync_components(settings.manager)
-        show_edge_health_status(settings.manager, out=out)
+        _run_all(out)
         return
 
     if args.component == "show":
@@ -367,14 +420,16 @@ def main():
         if len(targets) == 1 and targets[0].lower() == "all":
             edge_configs = list(settings.EDGES.values())
             if not edge_configs:
-                out.error("No edges defined in sdwan_variables.yml")
+                out.error(f"No edges defined in {settings.DEFAULT_VARIABLES_PATH}")
                 sys.exit(1)
         else:
             edge_configs = []
             for target in targets:
                 config = settings.EDGES.get(target)
                 if config is None:
-                    out.error(f"Unknown edge target: {target}")
+                    out.error(
+                        f"Unknown edge target: {target} in {settings.DEFAULT_VARIABLES_PATH}"
+                    )
                     sys.exit(1)
                 edge_configs.append(config)
 
@@ -384,6 +439,7 @@ def main():
             config_file=args.config_file,
             cert=args.cert,
             extra_routing=args.extra_routing,
+            stagger_seconds=settings.EDGE_STAGGER_SECONDS,
         )
         out.header("Edges Complete")
         out.success("Edge automation finished")
