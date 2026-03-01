@@ -134,7 +134,7 @@ python sdwan_automation.py generate --host-vars ../host_vars -o sdwan_variables-
 | --- | --- | --- |
 | `--host-vars` | *(required)* | Path to the host_vars (topology) directory |
 | `-b` / `--base` | `<script dir>/sdwan_base_variables.yml` | Base YAML with static values |
-| `-o` / `--output` | `sdwan_variables.gen.yml` | Output file |
+| `-o` / `--output` | `<script dir>/sdwan_variables.gen.yml` | Output file |
 
 #### How device and interface mapping works
 
@@ -189,7 +189,7 @@ python sdwan_automation.py deploy --host-vars ../host_vars -b sdwan_base_netlab.
 | --- | --- | --- |
 | `--host-vars` | *(required)* | Path to the host_vars (topology) directory |
 | `-b` / `--base` | `<script dir>/sdwan_base_variables.yml` | Base YAML with static values |
-| `-o` / `--output` | `sdwan_variables-netlab.gen.yml` | Output variables file (also loaded for automation) |
+| `-o` / `--output` | `<script dir>/sdwan_variables.gen.yml` | Output variables file (also loaded for automation) |
 | `-v` / `--verbose` | — | Enable verbose logging output |
 
 The output file can be passed to subsequent subcommands with `--variables-file` to re-run individual steps.

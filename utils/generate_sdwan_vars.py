@@ -168,7 +168,7 @@ def process_edge(topo: dict, mpls_node: str = "mpls", inet_node: str = "inet") -
 # ── Main ──────────────────────────────────────────────────────────────────────
 
 # Parent of utils/ = automate_sdwan/ — where base YAML and host_vars live by default
-HERE = Path(__file__).parent.parent
+SCRIPT_DIR = Path(__file__).parent.parent
 
 
 def run(base_path: Path, host_vars_path: Path, output_path: Path) -> None:
