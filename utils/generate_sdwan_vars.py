@@ -168,7 +168,7 @@ def process_edge(topo: dict, mpls_node: str = "mpls", inet_node: str = "inet") -
 # ── Main ──────────────────────────────────────────────────────────────────────
 
 # Parent of utils/ = automate_sdwan/ — where base YAML and host_vars live by default
-HERE = Path(__file__).parent.parent
+SCRIPT_DIR = Path(__file__).parent.parent
 
 
 def run(base_path: Path, host_vars_path: Path, output_path: Path) -> None:
@@ -208,7 +208,15 @@ def run(base_path: Path, host_vars_path: Path, output_path: Path) -> None:
 
     discovered_edges: set[str] = set()
 
-    for topo_file in sorted(host_vars_path.glob("*/topology.json")):
+    topo_files = sorted(host_vars_path.glob("*/topology.json"))
+    if not topo_files:
+        if not host_vars_path.is_dir():
+            print(f"ERROR: host_vars directory not found: {host_vars_path}", file=sys.stderr)
+        else:
+            print(f"ERROR: no topology.json files found under {host_vars_path}", file=sys.stderr)
+        sys.exit(1)
+
+    for topo_file in topo_files:
         device_name = topo_file.parent.name
 
         with topo_file.open() as f:

@@ -23,13 +23,13 @@ Usage:
     # Call the sdwan SDK CLI directly using `sdk` and passing all arguments after it:
     ./sdwan_automation.py sdk show dev
 
-    # Generate sdwan_variables.gen.yml from netlab topology files:
+    # Generate variables file from netlab topology (output goes to <script dir> by default):
     ./sdwan_automation.py generate --host-vars ../host_vars
-    ./sdwan_automation.py generate --host-vars ../host_vars -o sdwan_variables.gen.yml
+    ./sdwan_automation.py generate --host-vars ../host_vars -o /path/to/sdwan_variables-test.yml
 
     # Generate variables AND run first-boot on all components (single step for netlab):
     ./sdwan_automation.py deploy --host-vars ../host_vars
-    ./sdwan_automation.py deploy --host-vars ../host_vars -b sdwan_base_netlab.yml -o sdwan_variables-netlab.gen.yml
+    ./sdwan_automation.py deploy --host-vars ../host_vars -b sdwan_base_netlab.yml -o /path/to/sdwan_variables-netlab.gen.yml
 """
 
 import argparse
@@ -42,7 +42,7 @@ from components.sdwan_manager import run_manager_automation
 from components.sdwan_validator import run_validator_automation
 from utils import sdwan_config as settings
 from utils.component_sync import reboot_out_of_sync_components
-from utils.generate_sdwan_vars import HERE as _GENERATE_DIR
+from utils.generate_sdwan_vars import SCRIPT_DIR as _SCRIPT_DIR
 from utils.generate_sdwan_vars import run as _generate_vars
 from utils.logging import setup_logging
 from utils.manager_api_status import show_controller_status, show_edge_health_status
@@ -236,7 +236,7 @@ def main():
     generate_parser.add_argument(
         "-b",
         "--base",
-        default=_GENERATE_DIR / "sdwan_base_variables.yml",
+        default=_SCRIPT_DIR / "sdwan_base_variables.yml",
         metavar="FILE",
         help="Base YAML with static values",
     )
@@ -249,7 +249,7 @@ def main():
     generate_parser.add_argument(
         "-o",
         "--output",
-        default="sdwan_variables.gen.yml",
+        default=_SCRIPT_DIR / "sdwan_variables.gen.yml",
         metavar="FILE",
         help="Output YAML file",
     )
@@ -262,7 +262,7 @@ def main():
     deploy_parser.add_argument(
         "-b",
         "--base",
-        default=_GENERATE_DIR / "sdwan_base_variables.yml",
+        default=_SCRIPT_DIR / "sdwan_base_variables.yml",
         metavar="FILE",
         help="Base YAML with static values",
     )
@@ -275,7 +275,7 @@ def main():
     deploy_parser.add_argument(
         "-o",
         "--output",
-        default="sdwan_variables-netlab.gen.yml",
+        default=_SCRIPT_DIR / "sdwan_variables.gen.yml",
         metavar="FILE",
         help="Output YAML file (also used as the variables file for automation)",
     )
@@ -345,6 +345,7 @@ def main():
         settings.load(str(output_path))
         setup_logging(args.verbose)
         out = Output(__name__)
+        out.info(f"Variables → {settings._VARIABLES_PATH}")
         _run_all(out)
         return
 
@@ -360,6 +361,7 @@ def main():
         sys.exit(1)
     setup_logging(args.verbose)
     out = Output(__name__)
+    out.info(f"Variables → {settings._VARIABLES_PATH}")
 
     # Handle "all" component - runs first-boot on everything
     if args.component == "all":

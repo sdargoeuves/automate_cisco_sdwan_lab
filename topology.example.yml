@@ -1,0 +1,165 @@
+---
+message: "SDWAN lab..."
+
+defaults.devices.eos.clab.image: "ceos:4.29.9.1M"
+defaults.devices.linux.clab.image: "ubuntu/nginx"
+provider: clab
+
+groups:
+  # Unprovisioned devices: configuration will not be done by netlab
+  unprovisioned:
+    members: [ sdwan-manager, sdwan-controller, sdwan-validator, edge1, edge2, edge3 ]
+  site-routers:
+    _auto_create: true
+    device: eos
+    module: [ vlan, bgp, ospf ]
+    members: [ d1, d2, d3 ]
+    bgp.import: [ connected ]
+  pe-routers:
+    _auto_create: true
+    device: eos
+    module: [ bgp ]
+    members: [ mpls0 ]
+    bgp.as: 65100
+  inet-routers:
+    _auto_create: true
+    device: eos
+    module: [ bgp ]
+    members: [ inet0 ]
+    bgp.as: 65099
+  clients:
+    _auto_create: true
+    members: [ h1, h2, h3 ]
+    device: linux
+    provider: clab
+    role: host
+
+vlans:
+  user_1_data:
+    id: 591
+  user_2_data:
+    id: 592
+  user_3_data:
+    id: 593
+
+nodes:
+  d1:
+    bgp.as: 65591
+    vlans:
+      user_1_data:
+        ipv4: 1
+  d2:
+    bgp.as: 65592
+    vlans:
+      user_2_data:
+        ipv4: 1
+  d3:
+    bgp.as: 65593
+    vlans:
+      user_3_data:
+        ipv4: 1
+  sdwan-manager:
+    clab:
+      type: manager
+    device: linux
+    image: vrnetlab/cisco_sdwan-manager:20.16.1
+    # image: vrnetlab/cisco_sdwan-manager:20.15.4.1
+    # image: vrnetlab/cisco_sdwan-manager:20.15.1
+  sdwan-controller:
+    clab:
+      type: controller
+    device: linux
+    image: vrnetlab/cisco_sdwan-controller:20.16.1
+    # image: vrnetlab/cisco_sdwan-controller:20.15.4.1
+    # image: vrnetlab/cisco_sdwan-controller:20.15.1
+  sdwan-validator:
+    clab:
+      type: validator
+    device: linux
+    image: vrnetlab/cisco_sdwan-validator:20.16.1
+    # image: vrnetlab/cisco_sdwan-validator:20.15.4.1
+    # image: vrnetlab/cisco_sdwan-validator:20.15.1
+  edge1:
+    module: [ bgp ]
+    bgp.as: 65591
+    bgp.sessions:
+      ipv4: [ ebgp ]
+    clab:
+      type: controller  # SD-WAN managed mode, remove the type if using autonomous mode
+    device: cat8000v
+    image: vrnetlab/cisco_c8000v:controller-17.15.04c # vrnetlab created two images for c8000v, this is the controller mode
+  edge2:
+    module: [ bgp ]
+    bgp.as: 65592
+    bgp.sessions:
+      ipv4: [ ebgp ]
+    clab:
+      type: controller  # SD-WAN managed mode, remove the type if using autonomous mode
+    device: cat8000v
+    image: vrnetlab/cisco_c8000v:controller-17.15.04c # vrnetlab created two images for c8000v, this is the controller mode
+  edge3:
+    module: [ bgp ]
+    bgp.as: 65593
+    bgp.sessions:
+      ipv4: [ ebgp ]
+    clab:
+      type: controller  # SD-WAN managed mode, remove the type if using autonomous mode
+    device: cat8000v
+    image: vrnetlab/cisco_c8000v:controller-17.15.04c # for autonomous mode, use vrnetlab/cisco_c8000v:17.15.04c
+    
+links:
+## SDWAN manager, validator and controller
+  - sdwan-manager:
+    inet0:
+  - sdwan-validator:
+    inet0:
+  - sdwan-controller:
+    inet0:
+## Site 1
+  - edge1:
+    d1:
+  - edge1:
+    mpls0:
+      bgp.advertise: true
+  - edge1:
+    inet0:
+  - d1:
+    mpls0:
+  - h1:
+      ipv4: 11
+    d1:
+      vlan.access: user_1_data
+      ipv4: false
+## Site 2
+  - edge2:
+    d2:
+  - edge2:
+    mpls0:
+      bgp.advertise: true
+  - edge2:
+    inet0:
+  - d2:
+    mpls0:
+  - h2:
+      ipv4: 11
+    d2:
+      vlan.access: user_2_data
+      ipv4: false
+## Site 3
+  - edge3:
+    d3:
+  - edge3:
+    mpls0:
+      bgp.advertise: true
+  - edge3:
+    inet0:
+  - d3:
+    mpls0:
+  - h3:
+      ipv4: 11
+    d3:
+      vlan.access: user_3_data
+      ipv4: false
+
+tools:
+  graphite:
