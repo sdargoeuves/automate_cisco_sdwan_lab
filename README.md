@@ -4,6 +4,9 @@ Automate first-boot configuration and certificate enrollment for a Cisco SD-WAN 
 (Manager, Validator, Controller, Edges). Primarily aimed at [netlab](https://netlab.tools)
 users, but works for any SD-WAN deployment where management IPs are reachable.
 
+![SD-WAN lab topology](img/Cisco%20SD-WAN%20-%20IPF%20Lab%20-%20whiteTR.drawio.png#gh-light-mode-only)
+![SD-WAN lab topology](img/Cisco%20SD-WAN%20-%20IPF%20Lab%20-%20darkTR.drawio.png#gh-dark-mode-only)
+
 ## Credits
 
 This project is heavily based on the video series
@@ -20,7 +23,14 @@ project, that work is handled by netlab — though you can also specify it direc
 
 ## TL;DR — Quick Start with `netlab`
 
-After `netlab up`, from the `automate_sdwan` directory:
+An example netlab topology is
+provided in [`topology.example.yml`](topology.example.yml) — copy and adapt it as your
+starting point, then start the lab with `netlab up`.
+
+> **Prerequisites:** you will need [netlab](https://netlab.tools) and
+> [containerlab](https://containerlab.dev) installed, plus the vrnetlab images for
+> `cisco_sdwan-manager`, `cisco_sdwan-controller`, `cisco_sdwan-validator`, and
+> `cisco_c8000v` built and available to Docker.
 
 ### 1. Review `sdwan_base_variables.yml`
 
@@ -254,6 +264,7 @@ Add `-v` to most subcommands for verbose output.
 - `sdwan_automation.py`: CLI entry point
 - `sdwan_base_variables.yml`: static values you maintain manually
 - `sdwan_variables.example.yml`: example of a generated variables file (reference for structure)
+- `topology.example.yml`: example netlab topology used in this README
 - `components/`: automation flows per component
 - `utils/generate_sdwan_vars.py`: netlab topology → YAML generator
 - `utils/sdwan_config.py`: config assembly and variable loader
