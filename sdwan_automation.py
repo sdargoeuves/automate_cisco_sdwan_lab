@@ -345,6 +345,7 @@ def main():
         settings.load(str(output_path))
         setup_logging(args.verbose)
         out = Output(__name__)
+        out.info(f"Variables → {settings._VARIABLES_PATH}")
         _run_all(out)
         return
 
@@ -360,6 +361,7 @@ def main():
         sys.exit(1)
     setup_logging(args.verbose)
     out = Output(__name__)
+    out.info(f"Variables → {settings._VARIABLES_PATH}")
 
     # Handle "all" component - runs first-boot on everything
     if args.component == "all":
