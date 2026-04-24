@@ -178,6 +178,10 @@ system
 aaa
 user admin
 password {UPDATED_PASSWORD}
+lockout-policy
+   lockout-interval 1
+   fail-interval    1
+   fail-attempts    3600
 site-id {site_id}
 organization-name {ORG}
 system-ip {system_ip}
