@@ -245,7 +245,7 @@ python sdwan_automation.py --variables-file sdwan_variables-test.yml show device
 
 ### SDK passthrough
 
-Run any Sastre SDK CLI command without retyping credentials:
+Run any [Sastre](https://github.com/CiscoDevNet/sastre) SDK CLI command without retyping credentials:
 
 ```bash
 python sdwan_automation.py --variables-file sdwan_variables-test.yml sdk show dev
