@@ -1,0 +1,22 @@
+[build-system]
+requires = ["setuptools>=68.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "sdwan-automation"
+version = "1.0.1"
+description = "Cisco SD-WAN Certificate Automation"
+requires-python = ">=3.11"
+dependencies = [
+    "netmiko>=4.6.0",
+    "requests>=2.32.5",
+    "cisco-sdwan>=1.0.0",
+    "PyYAML>=6.0",
+]
+
+[project.scripts]
+sdwan-automation = "sdwan_automation:main"
+
+[tool.setuptools]
+py-modules = ["sdwan_automation"]
+packages = ["components", "utils"]
