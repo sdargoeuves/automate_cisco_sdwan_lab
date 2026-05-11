@@ -32,17 +32,25 @@ starting point, then start the lab with `netlab up`.
 > `cisco_sdwan-manager`, `cisco_sdwan-controller`, `cisco_sdwan-validator`, and
 > `cisco_c8000v` built and available to Docker.
 
-### 1. Review `sdwan_base_variables.yml`
+### 1. Install
+
+```bash
+pip install -e .    # or: uv pip install -e .
+```
+
+See [Installation](#installation) for details.
+
+### 2. Review `sdwan_base_variables.yml`
 
 Check the static values that netlab cannot derive: credentials, VPN ID, and timing.
 Edge devices are auto-discovered from the topology and site IDs are auto-assigned
 (`edge_site_id_start + n`, sorted alphabetically — default gives 101, 102, 103, …).
 No need to list your edge device names manually.
 
-### 2. Run `deploy` — generate variables and run first-boot
+### 3. Run `deploy` — generate variables and run first-boot
 
 ```bash
-python sdwan_automation.py deploy --host-vars /path/to/netlab/host_vars
+sdwan-automation deploy --host-vars /path/to/netlab/host_vars
 ```
 
 This generates the variables file from the netlab topology and immediately runs
@@ -52,16 +60,16 @@ Alternatively, run the two steps separately:
 
 ```bash
 # Generate the variables file
-python sdwan_automation.py generate --host-vars /path/to/netlab/host_vars -o sdwan_variables-test.yml
+sdwan-automation generate --host-vars /path/to/netlab/host_vars -o sdwan_variables-test.yml
 
 # Run first-boot on all SD-WAN components
-python sdwan_automation.py --variables-file sdwan_variables-test.yml all
+sdwan-automation --variables-file sdwan_variables-test.yml all
 ```
 
-### 3. Apply edge routing
+### 4. Apply edge routing
 
 ```bash
-python sdwan_automation.py --variables-file sdwan_variables-test.yml edges all --extra-routing
+sdwan-automation --variables-file sdwan_variables-test.yml edges all --extra-routing
 ```
 
 This pushes OSPF and BGP routing config to each edge, enabling communication between
@@ -73,7 +81,7 @@ the SD-WAN fabric, transport, and LAN devices.
 
 ---
 
-## Requirements
+## Installation
 
 - Python 3.11+
 - Network reachability to Manager/Validator/Controller management IPs
@@ -81,7 +89,25 @@ the SD-WAN fabric, transport, and LAN devices.
 
 ```bash
 python3 -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt
+pip install -e .        # or: uv pip install -e .
+```
+
+This installs `sdwan-automation` as a CLI command available anywhere in the venv.
+You can also install the traditional way with `pip install -r requirements.txt` and
+call `python sdwan_automation.py` directly.
+
+### Install directly from GitHub
+
+```bash
+pip install git+https://github.com/sdargoeuves/automate_cisco_sdwan_lab.git
+# or with uv:
+uv pip install git+https://github.com/sdargoeuves/automate_cisco_sdwan_lab.git
+```
+
+Pin to a specific release tag:
+
+```bash
+pip install git+https://github.com/sdargoeuves/automate_cisco_sdwan_lab.git@v1.0.1
 ```
 
 ## Configuration
@@ -117,7 +143,7 @@ topology. See `sdwan_variables.example.yml` for the complete structure and all a
 
 ## Usage
 
-Run from the `automate_sdwan` directory. Use `--variables-file <file>` (or `-f` for short)
+Use `--variables-file <file>` (or `-f` for short)
 before any subcommand to load a specific variables file instead of the default.
 
 ### Generate Variables from Netlab Topology
@@ -126,8 +152,8 @@ Merges `sdwan_base_variables.yml` with IPs and interfaces from netlab. Run after
 `netlab up`.
 
 ```bash
-python sdwan_automation.py generate --host-vars ../host_vars
-python sdwan_automation.py generate --host-vars ../host_vars -o sdwan_variables-test.yml
+sdwan-automation generate --host-vars ../host_vars
+sdwan-automation generate --host-vars ../host_vars -o sdwan_variables-test.yml
 ```
 
 | Flag | Default | Description |
@@ -181,8 +207,8 @@ This section is stripped from the output file.
 ### Deploy (Generate + First-Boot in one step)
 
 ```bash
-python sdwan_automation.py deploy --host-vars ../host_vars
-python sdwan_automation.py deploy --host-vars ../host_vars -b sdwan_base_netlab.yml -o sdwan_variables-netlab.gen.yml
+sdwan-automation deploy --host-vars ../host_vars
+sdwan-automation deploy --host-vars ../host_vars -b sdwan_base_netlab.yml -o sdwan_variables-netlab.gen.yml
 ```
 
 | Flag | Default | Description |
@@ -201,16 +227,16 @@ you have already run `generate` separately, or to re-run first-boot on an existi
 variables file.
 
 ```bash
-python sdwan_automation.py --variables-file sdwan_variables-test.yml all
+sdwan-automation --variables-file sdwan_variables-test.yml all
 ```
 
 ### Manager | Validator | Controller
 
 ```bash
-python sdwan_automation.py --variables-file sdwan_variables-test.yml [manager|validator|controller] --first-boot
-python sdwan_automation.py --variables-file sdwan_variables-test.yml [manager|validator|controller] --cert
-python sdwan_automation.py --variables-file sdwan_variables-test.yml [manager|validator|controller] --initial-config
-python sdwan_automation.py --variables-file sdwan_variables-test.yml [manager|validator|controller] --config-file myconfig.txt
+sdwan-automation -f sdwan_variables-test.yml [manager|validator|controller] --first-boot
+sdwan-automation -f sdwan_variables-test.yml [manager|validator|controller] --cert
+sdwan-automation -f sdwan_variables-test.yml [manager|validator|controller] --initial-config
+sdwan-automation -f sdwan_variables-test.yml [manager|validator|controller] --config-file myconfig.txt
 ```
 
 ### Edges (cEdge)
@@ -218,11 +244,11 @@ python sdwan_automation.py --variables-file sdwan_variables-test.yml [manager|va
 Targets are required and can be a comma-separated list or `all`:
 
 ```bash
-python sdwan_automation.py --variables-file sdwan_variables-test.yml edges all --first-boot
-python sdwan_automation.py --variables-file sdwan_variables-test.yml edges all --extra-routing
-python sdwan_automation.py --variables-file sdwan_variables-test.yml edges edge1,edge2 --initial-config
-python sdwan_automation.py --variables-file sdwan_variables-test.yml edges edge1 --cert
-python sdwan_automation.py --variables-file sdwan_variables-test.yml edges edge1 --config-file myconfig.txt
+sdwan-automation -f sdwan_variables-test.yml edges all --first-boot
+sdwan-automation -f sdwan_variables-test.yml edges all --extra-routing
+sdwan-automation -f sdwan_variables-test.yml edges edge1,edge2 --initial-config
+sdwan-automation -f sdwan_variables-test.yml edges edge1 --cert
+sdwan-automation -f sdwan_variables-test.yml edges edge1 --config-file myconfig.txt
 ```
 
 Edge options:
@@ -240,7 +266,7 @@ edge in the variables file.
 ### Show Devices Status
 
 ```bash
-python sdwan_automation.py --variables-file sdwan_variables-test.yml show devices
+sdwan-automation -f sdwan_variables-test.yml show devices
 ```
 
 ### SDK passthrough
@@ -248,8 +274,8 @@ python sdwan_automation.py --variables-file sdwan_variables-test.yml show device
 Run any [Sastre](https://github.com/CiscoDevNet/sastre) SDK CLI command without retyping credentials:
 
 ```bash
-python sdwan_automation.py --variables-file sdwan_variables-test.yml sdk show dev
-python sdwan_automation.py --variables-file sdwan_variables-test.yml sdk backup all --workdir backups
+sdwan-automation -f sdwan_variables-test.yml sdk show dev
+sdwan-automation -f sdwan_variables-test.yml sdk backup all --workdir backups
 ```
 
 Add `-v` to most subcommands for verbose output.
