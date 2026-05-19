@@ -46,11 +46,21 @@ timing:
   manager_api_ready_timeout_seconds: 900        # how long to wait for the manager API after first boot
 
   # Edge automation
-  edge_stagger_seconds: 2          # delay between launching each edge in parallel (seconds)
+  edge_stagger_seconds: 10          # delay between launching each edge in parallel (seconds)
   wait_before_activating_edge_seconds: 60
   wait_after_generating_payg_license_seconds: 30
   edge_cert_poll_interval_seconds: 10
-  edge_cert_poll_timeout_seconds: 240
+  edge_cert_poll_timeout_seconds: 240            # root CA chain install syslog gate
+
+  # PAYG activation retry — BYOL/PAYG mismatch on Manager can need several retries
+  edge_payg_activate_max_attempts: 4
+  edge_payg_activate_retry_wait_seconds: 60
+
+  # Post-activation device certificate validity check
+  # (`show sdwan certificate validity` returns valid once vManage has signed and pushed
+  # the device cert back to the edge over the control connection)
+  edge_cert_validity_poll_interval_seconds: 15
+  edge_cert_validity_timeout_seconds: 300
 
   # CSR operations
   wait_csr_generation_seconds: 30      # fixed wait on validator/controller after CSR is requested

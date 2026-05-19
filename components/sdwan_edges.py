@@ -140,12 +140,49 @@ def _wait_for_edge_cert(
         out.spinner_wait("Next root CA chain check", poll_interval_seconds)
 
 
+def _wait_for_device_cert_valid(
+    net_connect,
+    poll_interval_seconds: int = None,
+    timeout_seconds: int = None,
+) -> bool:
+    if poll_interval_seconds is None:
+        poll_interval_seconds = settings.EDGE_CERT_VALIDITY_POLL_INTERVAL_SECONDS
+    if timeout_seconds is None:
+        timeout_seconds = settings.EDGE_CERT_VALIDITY_TIMEOUT_SECONDS
+    out.step(
+        "Waiting for device certificate to be installed by Manager "
+        f"(poll {poll_interval_seconds}s, timeout {timeout_seconds}s)..."
+    )
+
+    start = time.time()
+    while True:
+        output = net_connect.send_command_timing("show sdwan certificate validity")
+        out.log_only(output)
+        lower = output.lower()
+
+        # Valid output contains something like "Certificate is valid from <date> to <date>"
+        # Failure output contains "Error: No certificate found"
+        if "no certificate found" not in lower and "error" not in lower and "valid" in lower:
+            out.success("Device certificate is valid.")
+            return True
+
+        if time.time() - start >= timeout_seconds:
+            out.warning("Device certificate did not become valid before timeout.")
+            return False
+
+        out.spinner_wait("Next device certificate validity check", poll_interval_seconds)
+
+
 def _activate_edge_license(
     net_connect,
     license_entry: dict,
-    retry_wait_seconds: int = 30,
-    max_attempts: int = 2,
+    retry_wait_seconds: int = None,
+    max_attempts: int = None,
 ) -> bool:
+    if retry_wait_seconds is None:
+        retry_wait_seconds = settings.EDGE_PAYG_ACTIVATE_RETRY_WAIT_SECONDS
+    if max_attempts is None:
+        max_attempts = settings.EDGE_PAYG_ACTIVATE_MAX_ATTEMPTS
     chassis = license_entry.get("chassis")
     token = license_entry.get("token")
     if not chassis or not token:
@@ -325,6 +362,13 @@ def run_edge_automation(
                 net_connect.disconnect()
                 raise SystemExit(1)
         if not _activate_edge_license(net_connect, license_entry):
+            net_connect.disconnect()
+            raise SystemExit(1)
+        if not _wait_for_device_cert_valid(net_connect):
+            out.error(
+                "Device certificate not valid after PAYG activation; "
+                "edge will not join the fabric."
+            )
             net_connect.disconnect()
             raise SystemExit(1)
 
