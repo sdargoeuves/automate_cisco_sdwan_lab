@@ -359,7 +359,7 @@ def _run_edge_automation_body(
             config.username,
             config.password,
         )
-        extra_routing_config = _get_edge_extra_routing_config(edge_name)
+        extra_routing_config = _get_edge_extra_routing_config(label)
         if not extra_routing_config:
             out.error(f"No extra routing config available for {label}.")
             net_connect.disconnect()
