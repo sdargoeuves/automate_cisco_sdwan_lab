@@ -59,8 +59,13 @@ timing:
   # Post-activation device certificate validity check
   # (`show sdwan certificate validity` returns valid once vManage has signed and pushed
   # the device cert back to the edge over the control connection)
+  # vManage signing typically takes 5–10 min, so the per-attempt timeout is generous
+  # to avoid sending `clear sdwan control connections` while signing is in progress.
+  # If the first attempt does time out, attempt 2 sends one `clear` to nudge a
+  # genuinely-stuck handshake before giving up.
   edge_cert_validity_poll_interval_seconds: 15
-  edge_cert_validity_timeout_seconds: 300
+  edge_cert_validity_timeout_seconds: 600
+  edge_cert_validity_max_attempts: 2
 
   # CSR operations
   wait_csr_generation_seconds: 30      # fixed wait on validator/controller after CSR is requested

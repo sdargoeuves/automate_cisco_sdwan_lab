@@ -140,6 +140,43 @@ def _wait_for_edge_cert(
         out.spinner_wait("Next root CA chain check", poll_interval_seconds)
 
 
+def _is_device_cert_valid(net_connect) -> bool:
+    """Single-shot check: does `show sdwan certificate validity` report a valid cert?
+
+    Uses ``send_command`` (waits for the prompt to re-appear) rather than
+    ``send_command_timing`` — the latter can return on a brief silence between
+    the command echo and the actual response, which trips a false positive
+    because the echoed word "validity" contains "valid".
+
+    The match phrase is the literal ``Certificate is valid`` from a real
+    success response (e.g. ``Certificate is valid from May 19 ... to May 16 ...``).
+    Failure responses include ``Error: No certificate found`` and
+    ``Error: already running by ...``.
+    """
+    try:
+        output = net_connect.send_command(
+            "show sdwan certificate validity",
+            read_timeout=30,
+        )
+    except Exception as exc:
+        # Treat any read error (timeout, pattern mismatch) as "not yet valid".
+        out.log_only(f"cert validity check error: {exc}", level="warning")
+        return False
+    out.log_only(output)
+    lower = output.lower()
+    return "certificate is valid" in lower and "error" not in lower
+
+
+def _clear_sdwan_control_connections(net_connect) -> None:
+    """Force a control-plane re-handshake. Useful when vManage has signed the
+    device cert but isn't pushing it — the clear forces a fresh handshake during
+    which vManage delivers the cert. Harmful while vManage is still signing, so
+    we only invoke this on a retry attempt, never during the first wait."""
+    out.step("Sending: clear sdwan control connections")
+    output = net_connect.send_command_timing("clear sdwan control connections")
+    out.log_only(output)
+
+
 def _wait_for_device_cert_valid(
     net_connect,
     poll_interval_seconds: int = None,
@@ -156,13 +193,7 @@ def _wait_for_device_cert_valid(
 
     start = time.time()
     while True:
-        output = net_connect.send_command_timing("show sdwan certificate validity")
-        out.log_only(output)
-        lower = output.lower()
-
-        # Valid output contains something like "Certificate is valid from <date> to <date>"
-        # Failure output contains "Error: No certificate found"
-        if "no certificate found" not in lower and "error" not in lower and "valid" in lower:
+        if _is_device_cert_valid(net_connect):
             out.success("Device certificate is valid.")
             return True
 
@@ -334,6 +365,18 @@ def run_edge_automation(
             config.username,
             config.password,
         )
+        # Pre-check: if the device already has a valid certificate, skip the
+        # full PAYG flow and just send `clear sdwan control connections` to
+        # refresh the control plane. Makes `edges --cert` cheap and idempotent
+        # on healthy edges; on first-boot the check returns false instantly.
+        if _is_device_cert_valid(net_connect):
+            out.info(
+                "Device certificate is already valid; refreshing control connections."
+            )
+            _clear_sdwan_control_connections(net_connect)
+            net_connect.disconnect()
+            out.success("Disconnected from Edge")
+            return
         licenses = generate_payg_licenses(settings.manager, 1)
         if not licenses:
             out.error("Failed to generate PAYG license; aborting edge automation.")
@@ -364,7 +407,25 @@ def run_edge_automation(
         if not _activate_edge_license(net_connect, license_entry):
             net_connect.disconnect()
             raise SystemExit(1)
-        if not _wait_for_device_cert_valid(net_connect):
+        # Wait for vManage to push the signed device cert. The per-attempt
+        # timeout is generous (default 10 min) because the natural signing flow
+        # can take 5–10 min and `clear sdwan control connections` interrupts it.
+        # Only on the retry do we send `clear` — for the rare case where signing
+        # is genuinely stuck and just needs a fresh handshake.
+        max_cert_attempts = settings.EDGE_CERT_VALIDITY_MAX_ATTEMPTS
+        cert_valid = False
+        for attempt in range(1, max_cert_attempts + 1):
+            if attempt > 1:
+                out.warning(
+                    f"Device certificate not yet valid; clearing SD-WAN control "
+                    f"connections to force re-handshake "
+                    f"(attempt {attempt}/{max_cert_attempts})..."
+                )
+                _clear_sdwan_control_connections(net_connect)
+            if _wait_for_device_cert_valid(net_connect):
+                cert_valid = True
+                break
+        if not cert_valid:
             out.error(
                 "Device certificate not valid after PAYG activation; "
                 "edge will not join the fabric."

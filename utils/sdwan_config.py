@@ -60,6 +60,7 @@ EDGE_PAYG_ACTIVATE_MAX_ATTEMPTS: int = None
 EDGE_PAYG_ACTIVATE_RETRY_WAIT_SECONDS: int = None
 EDGE_CERT_VALIDITY_POLL_INTERVAL_SECONDS: int = None
 EDGE_CERT_VALIDITY_TIMEOUT_SECONDS: int = None
+EDGE_CERT_VALIDITY_MAX_ATTEMPTS: int = None
 NETMIKO_INCREASED_READ_TIMEOUT_SECONDS: int = None
 CSR_FILE_TIMEOUT_SECONDS: int = None
 NETMIKO_CONFIG_RETRY_ATTEMPTS: int = None
@@ -416,6 +417,7 @@ def load(variables_path=None) -> None:
     global EDGE_CERT_POLL_TIMEOUT_SECONDS, NETMIKO_INCREASED_READ_TIMEOUT_SECONDS
     global EDGE_PAYG_ACTIVATE_MAX_ATTEMPTS, EDGE_PAYG_ACTIVATE_RETRY_WAIT_SECONDS
     global EDGE_CERT_VALIDITY_POLL_INTERVAL_SECONDS, EDGE_CERT_VALIDITY_TIMEOUT_SECONDS
+    global EDGE_CERT_VALIDITY_MAX_ATTEMPTS
     global CSR_FILE_TIMEOUT_SECONDS, NETMIKO_CONFIG_RETRY_ATTEMPTS
     global NETMIKO_CONFIG_RETRY_WAIT_SECONDS, NETMIKO_COMMIT_READ_TIMEOUT_SECONDS
     global NETMIKO_COMMIT_RETRY_ATTEMPTS, NETMIKO_COMMIT_RETRY_WAIT_SECONDS
@@ -474,7 +476,10 @@ def load(variables_path=None) -> None:
         _timing.get("edge_cert_validity_poll_interval_seconds", 15)
     )
     EDGE_CERT_VALIDITY_TIMEOUT_SECONDS = int(
-        _timing.get("edge_cert_validity_timeout_seconds", 300)
+        _timing.get("edge_cert_validity_timeout_seconds", 600)
+    )
+    EDGE_CERT_VALIDITY_MAX_ATTEMPTS = int(
+        _timing.get("edge_cert_validity_max_attempts", 2)
     )
     NETMIKO_INCREASED_READ_TIMEOUT_SECONDS = int(
         _timing.get("netmiko_increased_read_timeout_seconds", 30)
