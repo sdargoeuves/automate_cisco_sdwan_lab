@@ -1,14 +1,16 @@
 # ─────────────────────────────────────────────────────────────────────────────
-# AUTO-GENERATED FILE — DO NOT EDIT MANUALLY
+# EXAMPLE / REFERENCE — illustrates the structure of the generated variables file
 #
-# Generated : 2026-02-25 12:36 UTC
-# Source    : /home/sa/code/quick-netlab-lab/cisco-sdwan-lab/automate_sdwan/sdwan_netlab_base.yml
+# The real file is written by:
+#   sdwan-automation generate --host-vars <path/to/host_vars>
+# and lives at:
+#   ~/.config/sdwan-automation/variables.yml
 #
-# This file is rebuilt every time the following command is run:
-#   python sdwan_automation.py generate
+# Edit the base template (~/.config/sdwan-automation/base.yml) and re-run
+# `generate` to update the real file — do not edit the generated YAML directly.
 #
-# To make permanent changes, update the base variables file instead:
-#   /home/sa/code/quick-netlab-lab/cisco-sdwan-lab/automate_sdwan/sdwan_netlab_base.yml
+# If you are NOT using netlab, this example shows every value you would need to
+# populate by hand (management IPs, system IPs, interfaces, BGP ASNs).
 # ─────────────────────────────────────────────────────────────────────────────
 
 shared:

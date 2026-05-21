@@ -3,12 +3,12 @@ from pathlib import Path
 
 import yaml
 
+from utils.config_paths import user_variables_path
+
 # =============================================================================
 # Shared Configuration Values
 # =============================================================================
-DEFAULT_VARIABLES_PATH = (
-    Path(__file__).resolve().parent.parent / "sdwan_variables.gen.yml"
-)
+DEFAULT_VARIABLES_PATH = user_variables_path()
 
 # Module-level state — populated by load()
 _VARIABLES_PATH: Path = None
@@ -51,6 +51,8 @@ UPDATED_PASSWORD: str = None
 PORT: str = None
 WAIT_BEFORE_AUTOMATING_CONTROLLER_SECONDS: int = None
 WAIT_BEFORE_AUTOMATING_VALIDATOR_SECONDS: int = None
+CONTROLLER_POST_REBOOT_POLL_INTERVAL_SECONDS: int = None
+CONTROLLER_POST_REBOOT_TIMEOUT_SECONDS: int = None
 WAIT_CSR_GENERATION_SECONDS: int = None
 WAIT_BEFORE_ACTIVATING_EDGE_SECONDS: int = None
 WAIT_AFTER_GENERATING_PAYG_LICENSE_SECONDS: int = None
@@ -412,6 +414,9 @@ def load(variables_path=None) -> None:
     global \
         WAIT_BEFORE_AUTOMATING_CONTROLLER_SECONDS, \
         WAIT_BEFORE_AUTOMATING_VALIDATOR_SECONDS
+    global \
+        CONTROLLER_POST_REBOOT_POLL_INTERVAL_SECONDS, \
+        CONTROLLER_POST_REBOOT_TIMEOUT_SECONDS
     global WAIT_CSR_GENERATION_SECONDS, WAIT_BEFORE_ACTIVATING_EDGE_SECONDS
     global WAIT_AFTER_GENERATING_PAYG_LICENSE_SECONDS, EDGE_CERT_POLL_INTERVAL_SECONDS
     global EDGE_CERT_POLL_TIMEOUT_SECONDS, NETMIKO_INCREASED_READ_TIMEOUT_SECONDS
@@ -452,6 +457,12 @@ def load(variables_path=None) -> None:
     )
     WAIT_BEFORE_AUTOMATING_VALIDATOR_SECONDS = int(
         _timing.get("wait_before_automating_validator_seconds", 60)
+    )
+    CONTROLLER_POST_REBOOT_POLL_INTERVAL_SECONDS = int(
+        _timing.get("controller_post_reboot_poll_interval_seconds", 30)
+    )
+    CONTROLLER_POST_REBOOT_TIMEOUT_SECONDS = int(
+        _timing.get("controller_post_reboot_timeout_seconds", 600)
     )
     WAIT_CSR_GENERATION_SECONDS = int(_timing.get("wait_csr_generation_seconds", 30))
     WAIT_BEFORE_ACTIVATING_EDGE_SECONDS = int(

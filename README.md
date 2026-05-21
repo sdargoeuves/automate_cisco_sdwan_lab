@@ -35,17 +35,27 @@ starting point, then start the lab with `netlab up`.
 ### 1. Install
 
 ```bash
-pip install -e .    # or: uv pip install -e .
+pip install git+https://github.com/sdargoeuves/automate_cisco_sdwan_lab.git
+# or with uv:
+#uv pip install git+https://github.com/sdargoeuves/automate_cisco_sdwan_lab.git
 ```
 
 See [Installation](#installation) for details.
 
-### 2. Review `sdwan_base_variables.yml`
+### 2. Initialise your config
 
-Check the static values that netlab cannot derive: credentials, VPN ID, and timing.
-Edge devices are auto-discovered from the topology and site IDs are auto-assigned
-(`edge_site_id_start + n`, sorted alphabetically — default gives 101, 102, 103, …).
-No need to list your edge device names manually.
+```bash
+sdwan-automation init
+```
+
+This copies the bundled template
+[`utils/templates/sdwan_base_variables.yml`](utils/templates/sdwan_base_variables.yml)
+to `~/.config/sdwan-automation/base.yml` (or
+`$XDG_CONFIG_HOME/sdwan-automation/base.yml` if set). Open the file and review
+the static values that netlab cannot derive: credentials, VPN ID, and timing.
+Edge devices are auto-discovered from the topology and site IDs are
+auto-assigned (`edge_site_id_start + n`, sorted alphabetically — default gives
+101, 102, 103, …). No need to list your edge device names manually.
 
 ### 3. Run `deploy` — generate variables and run first-boot
 
@@ -53,23 +63,25 @@ No need to list your edge device names manually.
 sdwan-automation deploy --host-vars /path/to/netlab/host_vars
 ```
 
-This generates the variables file from the netlab topology and immediately runs
-first-boot automation on Manager, Validator, Controller, and Edges in sequence.
+This reads `~/.config/sdwan-automation/base.yml`, generates
+`~/.config/sdwan-automation/variables.yml` from the netlab topology, and
+immediately runs first-boot automation on Manager, Validator, Controller, and
+Edges in sequence.
 
 Alternatively, run the two steps separately:
 
 ```bash
-# Generate the variables file
-sdwan-automation generate --host-vars /path/to/netlab/host_vars -o sdwan_variables-test.yml
+# Generate the variables file (writes ~/.config/sdwan-automation/variables.yml)
+sdwan-automation generate --host-vars /path/to/netlab/host_vars
 
 # Run first-boot on all SD-WAN components
-sdwan-automation --variables-file sdwan_variables-test.yml all
+sdwan-automation first-boot
 ```
 
 ### 4. Apply edge routing
 
 ```bash
-sdwan-automation --variables-file sdwan_variables-test.yml edges all --extra-routing
+sdwan-automation edges all --extra-routing
 ```
 
 This pushes OSPF and BGP routing config to each edge, enabling communication between
@@ -112,14 +124,21 @@ pip install git+https://github.com/sdargoeuves/automate_cisco_sdwan_lab.git@v1.0
 
 ## Configuration
 
-The automation is driven by a single YAML variables file. Not using netlab? Take a look at
-`sdwan_variables.example.yml` — it shows the complete structure and every value you will
-need to fill in manually: management IPs, system IPs, interface names, and BGP ASNs.
+The automation reads from a single YAML variables file. Both the editable template
+(`base.yml`) and the generated output (`variables.yml`) live under
+`~/.config/sdwan-automation/` (or `$XDG_CONFIG_HOME/sdwan-automation/` if set).
+Run `sdwan-automation init` once to materialise the template; everything else
+defaults to these paths and needs no flag.
 
-### sdwan_base_variables.yml
+Not using netlab? Take a look at [`sdwan_variables.example.yml`](sdwan_variables.example.yml)
+— it shows the complete structure and every value you would need to fill in manually:
+management IPs, system IPs, interface names, and BGP ASNs.
+
+### `~/.config/sdwan-automation/base.yml`
 
 Contains **static values** that cannot be derived from the netlab topology — edit this
-before running `generate`. Values here always win over topology data.
+before running `generate`. Values here always win over topology data. Created by
+`sdwan-automation init` from the bundled template.
 
 | Section | Keys | Description |
 | --- | --- | --- |
@@ -134,33 +153,44 @@ before running `generate`. Values here always win over topology data.
 
 Do not set IPs, interface names, or BGP ASNs here — those come from the netlab topology.
 
-### sdwan_variables.gen.yml (generated output)
+### `~/.config/sdwan-automation/variables.yml` (generated output)
 
 Produced by `generate`/`deploy`; consumed by all automation subcommands. Do not edit
-manually. Combines `sdwan_base_variables.yml` with management IPs, system IPs,
-data-plane interface names/IPs/gateways (MPLS, internet, LAN), and BGP ASNs from the
-topology. See `sdwan_variables.example.yml` for the complete structure and all available keys.
+manually. Combines `base.yml` with management IPs, system IPs, data-plane interface
+names/IPs/gateways (MPLS, internet, LAN), and BGP ASNs from the topology. See
+[`sdwan_variables.example.yml`](sdwan_variables.example.yml) for the complete structure
+and all available keys.
 
 ## Usage
 
-Use `--variables-file <file>` (or `-f` for short)
-before any subcommand to load a specific variables file instead of the default.
+All subcommands read `~/.config/sdwan-automation/variables.yml` by default. Use
+`--variables-file <file>` (or `-f` for short) before any subcommand to load a
+different file instead.
+
+### Initialise Config (`init`)
+
+```bash
+sdwan-automation init
+sdwan-automation init --force   # overwrite an existing base.yml
+```
+
+Copies the bundled `base.yml` template into `~/.config/sdwan-automation/`.
+Run once after install, then edit the file to set org name, passwords, and timing.
 
 ### Generate Variables from Netlab Topology
 
-Merges `sdwan_base_variables.yml` with IPs and interfaces from netlab. Run after every
-`netlab up`.
+Merges `base.yml` with IPs and interfaces from netlab. Run after every `netlab up`.
 
 ```bash
 sdwan-automation generate --host-vars ../host_vars
-sdwan-automation generate --host-vars ../host_vars -o sdwan_variables-test.yml
+sdwan-automation generate --host-vars ../host_vars -o /tmp/sdwan_variables-test.yml
 ```
 
 | Flag | Default | Description |
 | --- | --- | --- |
 | `--host-vars` | *(required)* | Path to the host_vars (topology) directory |
-| `-b` / `--base` | `<script dir>/sdwan_base_variables.yml` | Base YAML with static values |
-| `-o` / `--output` | `<script dir>/sdwan_variables.gen.yml` | Output file |
+| `-b` / `--base` | `~/.config/sdwan-automation/base.yml` | Base YAML with static values |
+| `-o` / `--output` | `~/.config/sdwan-automation/variables.yml` | Output file |
 
 #### How device and interface mapping works
 
@@ -176,8 +206,8 @@ The generator scans every `host_vars/<device>/topology.json` and maps devices as
 
 Edge site IDs are auto-assigned as `edge_site_id_start + n` (edges sorted alphabetically,
 1-indexed). With the default `edge_site_id_start: 100`, three edges get 101, 102, 103.
-Per-device overrides in `sdwan_base_variables.yml` under `devices.edges.<name>.site_id`
-always take precedence. Any `devices.edges` entries in the base file that have no
+Per-device overrides in `base.yml` under `devices.edges.<name>.site_id` always
+take precedence. Any `devices.edges` entries in the base file that have no
 corresponding topology device are silently pruned from the output.
 
 Control-plane devices use `interfaces[0]` for transport IP/prefix/gateway. Validator
@@ -193,8 +223,8 @@ Edge interfaces are classified by matching the **neighbor node name** against re
 
 BGP ASNs follow the same patterns (`bgp_mpls_as`, `bgp_inet_as`; `bgp_local_as` from `bgp.as`).
 
-Override patterns under `generate:` in `sdwan_base_variables.yml`. Any valid Python regex
-is accepted — **quote values** that start with `^` or contain `|` or `\`:
+Override patterns under `generate:` in `base.yml`. Any valid Python regex is
+accepted — **quote values** that start with `^` or contain `|` or `\`:
 
 ```yaml
 generate:
@@ -208,35 +238,36 @@ This section is stripped from the output file.
 
 ```bash
 sdwan-automation deploy --host-vars ../host_vars
-sdwan-automation deploy --host-vars ../host_vars -b sdwan_base_netlab.yml -o sdwan_variables-netlab.gen.yml
+sdwan-automation deploy --host-vars ../host_vars -b /tmp/sdwan_base_netlab.yml -o /tmp/sdwan_variables-netlab.yml
 ```
 
 | Flag | Default | Description |
 | --- | --- | --- |
 | `--host-vars` | *(required)* | Path to the host_vars (topology) directory |
-| `-b` / `--base` | `<script dir>/sdwan_base_variables.yml` | Base YAML with static values |
-| `-o` / `--output` | `<script dir>/sdwan_variables.gen.yml` | Output variables file (also loaded for automation) |
+| `-b` / `--base` | `~/.config/sdwan-automation/base.yml` | Base YAML with static values |
+| `-o` / `--output` | `~/.config/sdwan-automation/variables.yml` | Output variables file (also loaded for automation) |
 | `-v` / `--verbose` | — | Enable verbose logging output |
 
-The output file can be passed to subsequent subcommands with `--variables-file` to re-run individual steps.
+If you override `-o`, pass the same path to subsequent subcommands with `--variables-file` to re-run individual steps.
 
-### All Components (First-Boot)
+### First-Boot (all components)
 
 Runs first-boot in sequence: Manager → Validator → Controller → Edges. Use this when
 you have already run `generate` separately, or to re-run first-boot on an existing
-variables file.
+variables file. Does not push edge `--extra-routing`; run that separately afterwards
+if needed.
 
 ```bash
-sdwan-automation --variables-file sdwan_variables-test.yml all
+sdwan-automation first-boot
 ```
 
 ### Manager | Validator | Controller
 
 ```bash
-sdwan-automation -f sdwan_variables-test.yml [manager|validator|controller] --first-boot
-sdwan-automation -f sdwan_variables-test.yml [manager|validator|controller] --cert
-sdwan-automation -f sdwan_variables-test.yml [manager|validator|controller] --initial-config
-sdwan-automation -f sdwan_variables-test.yml [manager|validator|controller] --config-file myconfig.txt
+sdwan-automation [manager|validator|controller] --first-boot
+sdwan-automation [manager|validator|controller] --cert
+sdwan-automation [manager|validator|controller] --initial-config
+sdwan-automation [manager|validator|controller] --config-file myconfig.txt
 ```
 
 ### Edges (cEdge)
@@ -244,11 +275,11 @@ sdwan-automation -f sdwan_variables-test.yml [manager|validator|controller] --co
 Targets are required and can be a comma-separated list or `all`:
 
 ```bash
-sdwan-automation -f sdwan_variables-test.yml edges all --first-boot
-sdwan-automation -f sdwan_variables-test.yml edges all --extra-routing
-sdwan-automation -f sdwan_variables-test.yml edges edge1,edge2 --initial-config
-sdwan-automation -f sdwan_variables-test.yml edges edge1 --cert
-sdwan-automation -f sdwan_variables-test.yml edges edge1 --config-file myconfig.txt
+sdwan-automation edges all --first-boot
+sdwan-automation edges all --extra-routing
+sdwan-automation edges edge1,edge2 --initial-config
+sdwan-automation edges edge1 --cert
+sdwan-automation edges edge1 --config-file myconfig.txt
 ```
 
 Edge options:
@@ -266,7 +297,7 @@ edge in the variables file.
 ### Show Devices Status
 
 ```bash
-sdwan-automation -f sdwan_variables-test.yml show devices
+sdwan-automation show devices
 ```
 
 ### SDK passthrough
@@ -274,24 +305,29 @@ sdwan-automation -f sdwan_variables-test.yml show devices
 Run any [Sastre](https://github.com/CiscoDevNet/sastre) SDK CLI command without retyping credentials:
 
 ```bash
-sdwan-automation -f sdwan_variables-test.yml sdk show dev
-sdwan-automation -f sdwan_variables-test.yml sdk backup all --workdir backups
+sdwan-automation sdk show dev
+sdwan-automation sdk backup all --workdir backups
 ```
 
 Add `-v` to most subcommands for verbose output.
 
 ## Logs
 
-- `logs/sdwan_automation.log` (INFO+)
-- `logs/sdwan_automation.debug.log` (DEBUG)
+Written under the user config directory (`$XDG_CONFIG_HOME/sdwan-automation/logs/`
+or `~/.config/sdwan-automation/logs/` by default):
+
+- `sdwan_automation.log` (INFO+, rotated at 2 MB, 5 backups gzipped)
+- `sdwan_automation.debug.log` (DEBUG, same rotation policy)
 
 ## Project Layout
 
 - `sdwan_automation.py`: CLI entry point
-- `sdwan_base_variables.yml`: static values you maintain manually
+- `utils/templates/sdwan_base_variables.yml`: bundled base template — copied to
+  `~/.config/sdwan-automation/base.yml` by `sdwan-automation init`
 - `sdwan_variables.example.yml`: example of a generated variables file (reference for structure)
 - `topology.example.yml`: example netlab topology used in this README
 - `components/`: automation flows per component
+- `utils/config_paths.py`: resolves the user config directory (`$XDG_CONFIG_HOME` or `~/.config`)
 - `utils/generate_sdwan_vars.py`: netlab topology → YAML generator
 - `utils/sdwan_config.py`: config assembly and variable loader
 - `utils/`: SDK, Netmiko, logging, and console helpers

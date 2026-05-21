@@ -45,6 +45,12 @@ timing:
   wait_before_automating_controller_seconds: 120
   manager_api_ready_timeout_seconds: 900        # how long to wait for the manager API after first boot
 
+  # Out-of-sync controller reboot — when vBond/vSmart come up out-of-sync we reboot them.
+  # The reboot must finish (and the controller re-sync) before edges are configured;
+  # otherwise edges race against a controller restart and BFD never comes up.
+  controller_post_reboot_poll_interval_seconds: 30
+  controller_post_reboot_timeout_seconds: 600
+
   # Edge automation
   edge_stagger_seconds: 10          # delay between launching each edge in parallel (seconds)
   wait_before_activating_edge_seconds: 60

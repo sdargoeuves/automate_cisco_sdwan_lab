@@ -19,4 +19,7 @@ sdwan-automation = "sdwan_automation:main"
 
 [tool.setuptools]
 py-modules = ["sdwan_automation"]
-packages = ["components", "utils"]
+packages = ["components", "utils", "utils.templates"]
+
+[tool.setuptools.package-data]
+"utils.templates" = ["*.yml"]

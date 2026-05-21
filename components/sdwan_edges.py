@@ -19,7 +19,7 @@ from utils.netmiko import (
     push_config_from_file,
     scp_copy_file,
 )
-from utils.output import Output
+from utils.output import Output, thread_label
 from utils.sdwan_sdk import SdkCallError, sdk_call_json
 
 out = Output(__name__)
@@ -270,8 +270,24 @@ def run_edge_automation(
     device_type: str = "cisco_ios",
     edge_name: Optional[str] = None,
 ) -> None:
-    out = Output(__name__)
     label = edge_name or "edge"
+    # Set a thread-local label so every Output() in this worker — including
+    # shared helpers in utils/netmiko — automatically prefixes its lines.
+    with thread_label(f"[{label}]"):
+        _run_edge_automation_body(
+            config, initial_config, config_file, cert, extra_routing, device_type, label
+        )
+
+
+def _run_edge_automation_body(
+    config: settings.EdgeConfig,
+    initial_config: bool,
+    config_file: Optional[str],
+    cert: bool,
+    extra_routing: bool,
+    device_type: str,
+    label: str,
+) -> None:
     out.log_only(
         f"Edge run start initial_config={initial_config} cert={cert} "
         f"extra_routing={extra_routing} "

@@ -4,32 +4,32 @@ Simple Cisco SD-WAN Certificate Automation
 Uses Netmiko for better Viptela/SD-WAN CLI handling
 
 Usage:
-    # Components actions:
-    ./sdwan_automation.py [manager, validator, controller] --first-boot
-    ./sdwan_automation.py [manager, validator, controller] --cert
-    ./sdwan_automation.py [manager, validator, controller] --initial-config
-    ./sdwan_automation.py [manager, validator, controller] --config-file myconfig.txt
-    ./sdwan_automation.py [manager, validator, controller] --cert --config-file additional.txt
+    # One-time setup — copy the bundled base template into ~/.config/sdwan-automation/:
+    sdwan-automation init
+
+    # Generate the variables file from netlab topology (defaults to ~/.config/sdwan-automation/variables.yml):
+    sdwan-automation generate --host-vars ../host_vars
+
+    # Components actions (all read ~/.config/sdwan-automation/variables.yml by default):
+    sdwan-automation [manager, validator, controller] --first-boot
+    sdwan-automation [manager, validator, controller] --cert
+    sdwan-automation [manager, validator, controller] --initial-config
+    sdwan-automation [manager, validator, controller] --config-file myconfig.txt
 
     # Use a custom variables file (must come before the subcommand):
-    ./sdwan_automation.py --variables-file /path/to/other_sdwan_variables.yml manager --first-boot
+    sdwan-automation -f /path/to/other_sdwan_variables.yml manager --first-boot
 
-    # Run first-boot on all components:
-    ./sdwan_automation.py all
+    # Run first-boot on all components (Manager, Validator, Controller, Edges):
+    sdwan-automation first-boot
 
     # Show Manager status tables:
-    ./sdwan_automation.py show devices
+    sdwan-automation show devices
 
     # Call the sdwan SDK CLI directly using `sdk` and passing all arguments after it:
-    ./sdwan_automation.py sdk show dev
-
-    # Generate variables file from netlab topology (output goes to <script dir> by default):
-    ./sdwan_automation.py generate --host-vars ../host_vars
-    ./sdwan_automation.py generate --host-vars ../host_vars -o /path/to/sdwan_variables-test.yml
+    sdwan-automation sdk show dev
 
     # Generate variables AND run first-boot on all components (single step for netlab):
-    ./sdwan_automation.py deploy --host-vars ../host_vars
-    ./sdwan_automation.py deploy --host-vars ../host_vars -b sdwan_base_netlab.yml -o /path/to/sdwan_variables-netlab.gen.yml
+    sdwan-automation deploy --host-vars ../host_vars
 """
 
 import argparse
@@ -42,7 +42,12 @@ from components.sdwan_manager import run_manager_automation
 from components.sdwan_validator import run_validator_automation
 from utils import sdwan_config as settings
 from utils.component_sync import reboot_out_of_sync_components
-from utils.generate_sdwan_vars import SCRIPT_DIR as _SCRIPT_DIR
+from utils.config_paths import (
+    install_base_template,
+    user_base_path,
+    user_config_dir,
+    user_variables_path,
+)
 from utils.generate_sdwan_vars import run as _generate_vars
 from utils.logging import setup_logging
 from utils.manager_api_status import show_controller_status, show_edge_health_status
@@ -72,6 +77,11 @@ def _run_all(out: Output) -> None:
     run_controller_automation(settings.controller, initial_config=True, cert=True)
     show_controller_status(settings.manager, out=out)
 
+    # Verify controllers are in sync (and reboot + wait if not) BEFORE starting edges.
+    # Otherwise an out-of-sync vBond/vSmart reboot would race against edges joining
+    # the fabric, leaving them with no BFD.
+    reboot_out_of_sync_components(settings.manager)
+
     edge_configs = list(settings.EDGES.values())
     if not edge_configs:
         out.warning("No edges defined in sdwan_variables.yml")
@@ -82,7 +92,6 @@ def _run_all(out: Output) -> None:
     out.success(
         "First-boot automation finished for Manager, Validator, Controller, and Edges"
     )
-    reboot_out_of_sync_components(settings.manager)
     show_edge_health_status(settings.manager, out=out)
 
 
@@ -228,6 +237,20 @@ def main():
         help="Push edge routing configuration",
     )
 
+    init_parser = subparsers.add_parser(
+        "init",
+        help=(
+            "Copy the bundled base template into the user config directory "
+            f"({user_config_dir()})"
+        ),
+    )
+    init_parser.set_defaults(_parser=init_parser)
+    init_parser.add_argument(
+        "--force",
+        action="store_true",
+        help="Overwrite an existing base.yml",
+    )
+
     generate_parser = subparsers.add_parser(
         "generate",
         help="Generate sdwan_variables YAML from netlab topology files",
@@ -236,9 +259,9 @@ def main():
     generate_parser.add_argument(
         "-b",
         "--base",
-        default=_SCRIPT_DIR / "sdwan_base_variables.yml",
+        default=user_base_path(),
         metavar="FILE",
-        help="Base YAML with static values",
+        help="Base YAML with static values (default: user config base.yml)",
     )
     generate_parser.add_argument(
         "--host-vars",
@@ -249,9 +272,9 @@ def main():
     generate_parser.add_argument(
         "-o",
         "--output",
-        default=_SCRIPT_DIR / "sdwan_variables.gen.yml",
+        default=user_variables_path(),
         metavar="FILE",
-        help="Output YAML file",
+        help="Output YAML file (default: user config variables.yml)",
     )
 
     deploy_parser = subparsers.add_parser(
@@ -262,9 +285,9 @@ def main():
     deploy_parser.add_argument(
         "-b",
         "--base",
-        default=_SCRIPT_DIR / "sdwan_base_variables.yml",
+        default=user_base_path(),
         metavar="FILE",
-        help="Base YAML with static values",
+        help="Base YAML with static values (default: user config base.yml)",
     )
     deploy_parser.add_argument(
         "--host-vars",
@@ -275,9 +298,9 @@ def main():
     deploy_parser.add_argument(
         "-o",
         "--output",
-        default=_SCRIPT_DIR / "sdwan_variables.gen.yml",
+        default=user_variables_path(),
         metavar="FILE",
-        help="Output YAML file (also used as the variables file for automation)",
+        help="Output YAML file, also used as variables file for automation (default: user config variables.yml)",
     )
     deploy_parser.add_argument(
         "-v",
@@ -287,7 +310,11 @@ def main():
     )
 
     all_parser = subparsers.add_parser(
-        "all", help="Run first-boot on all components (manager, validator, controller)"
+        "first-boot",
+        help=(
+            "Run first-boot on Manager, Validator, Controller, and Edges in "
+            "sequence (does not push edge --extra-routing)"
+        ),
     )
     all_parser.add_argument(
         "-v",
@@ -333,15 +360,44 @@ def main():
         parser.print_help()
         sys.exit(0)
 
+    # `init` does not need SDWAN settings or logging
+    if args.component == "init":
+        dest, created = install_base_template(force=args.force)
+        if created:
+            print(f"Created {dest}")
+            print(
+                "Edit it to set org name, passwords, etc., then run "
+                "'sdwan-automation generate --host-vars <dir>'."
+            )
+        else:
+            print(f"Already exists: {dest} (use --force to overwrite)")
+        return
+
     # Generate does not need SDWAN settings or logging
     if args.component == "generate":
-        _generate_vars(Path(args.base), Path(args.host_vars), Path(args.output))
+        base_path = Path(args.base)
+        if not base_path.exists():
+            print(
+                f"Error: base file not found: {base_path}\n"
+                "Run 'sdwan-automation init' to create one, or pass -b <file>.",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+        _generate_vars(base_path, Path(args.host_vars), Path(args.output))
         return
 
     # Deploy: generate variables from netlab topology, then run first-boot on all components
     if args.component == "deploy":
+        base_path = Path(args.base)
+        if not base_path.exists():
+            print(
+                f"Error: base file not found: {base_path}\n"
+                "Run 'sdwan-automation init' to create one, or pass -b <file>.",
+                file=sys.stderr,
+            )
+            sys.exit(1)
         output_path = Path(args.output)
-        _generate_vars(Path(args.base), Path(args.host_vars), output_path)
+        _generate_vars(base_path, Path(args.host_vars), output_path)
         settings.load(str(output_path))
         setup_logging(args.verbose)
         out = Output(__name__)
@@ -353,7 +409,9 @@ def main():
         settings.load(args.variables_file)
     except FileNotFoundError as exc:
         hint = (
-            "\nRun 'generate' or 'deploy' to create one, or use '-f <file>' to specify a path."
+            "\nRun 'sdwan-automation init' (one-time) and then "
+            "'sdwan-automation generate --host-vars <dir>' to create one, "
+            "or use '-f <file>' to specify a path."
             if args.variables_file is None
             else ""
         )
@@ -363,8 +421,8 @@ def main():
     out = Output(__name__)
     out.info(f"Variables → {settings._VARIABLES_PATH}")
 
-    # Handle "all" component - runs first-boot on everything
-    if args.component == "all":
+    # Handle "first-boot" component - runs first-boot on every component
+    if args.component == "first-boot":
         _run_all(out)
         return
 
