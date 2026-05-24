@@ -52,6 +52,7 @@ from utils.config_paths import (
 from utils.generate_sdwan_vars import run as _generate_vars
 from utils.logging import setup_logging
 from utils.manager_api_status import (
+    get_edge_health_items,
     show_controller_status,
     show_edge_health_status,
     show_license_status,
@@ -67,6 +68,42 @@ def _command_line_for_log() -> str:
     if executable.startswith("sdwan_automation"):
         executable = "sdwan-automation"
     return shlex.join([executable, *sys.argv[1:]])
+
+
+def _edge_configs_needing_cert_repair(out: Output) -> list[settings.EdgeConfig]:
+    """Return configured edges that have not fully joined the control fabric.
+
+    This is intentionally control-plane based, not BFD based. If an edge has
+    fewer than 2 control connections it is still in the cert/onboarding problem
+    space. If all control connections are up but BFD is down, retrying certs is
+    the wrong remediation.
+    """
+    health_by_system_ip = {
+        item.get("system_ip"): item for item in get_edge_health_items(settings.manager)
+    }
+    selected = []
+    selected_names = []
+    for edge_name, edge_config in settings.EDGES.items():
+        item = health_by_system_ip.get(edge_config.system_ip)
+        control_up = item.get("control_connections_up") if item else 0
+        try:
+            control_up_int = int(control_up or 0)
+        except (TypeError, ValueError):
+            control_up_int = 0
+        if control_up_int < 2:
+            selected.append(edge_config)
+            selected_names.append(edge_name)
+
+    if selected_names:
+        out.info(
+            "Selected edges needing cert repair: " + ", ".join(sorted(selected_names))
+        )
+    else:
+        out.success(
+            "No edges need cert repair; all configured edges have 2 control "
+            "connections."
+        )
+    return selected
 
 
 def _run_all(out: Output) -> None:
@@ -232,7 +269,10 @@ def main():
     edges_parser.set_defaults(_parser=edges_parser)
     edges_parser.add_argument(
         "targets",
-        help="Comma-separated edge names (keys under devices.edges) or 'all'",
+        help=(
+            "Comma-separated edge names (keys under devices.edges), 'all', "
+            "or 'failed' for edges with fewer than 2 control connections"
+        ),
     )
     edges_parser.add_argument(
         "-v",
@@ -518,6 +558,16 @@ def main():
             if not edge_configs:
                 out.error(f"No edges defined in {settings.DEFAULT_VARIABLES_PATH}")
                 sys.exit(1)
+        elif len(targets) == 1 and targets[0].lower() in {"failed", "nok"}:
+            if args.initial_config or args.config_file or args.extra_routing:
+                out.error(
+                    "The 'failed' target is only valid for certificate repair "
+                    "(use: sdwan-automation edges failed --cert)."
+                )
+                sys.exit(1)
+            edge_configs = _edge_configs_needing_cert_repair(out)
+            if not edge_configs:
+                return
         else:
             edge_configs = []
             for target in targets:
