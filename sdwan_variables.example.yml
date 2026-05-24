@@ -141,6 +141,15 @@ timing:
   wait_after_generating_payg_license_seconds: 30
   edge_cert_poll_interval_seconds: 10
   edge_cert_poll_timeout_seconds: 240
+  edge_payg_activate_max_attempts: 4
+  edge_payg_activate_retry_wait_seconds: 60
+  edge_activation_gap_seconds: 30
+  edge_cert_validity_poll_interval_seconds: 15
+  edge_cert_validity_timeout_seconds: 600
+  edge_cert_validity_max_attempts: 2
+  edge_bfd_convergence_poll_interval_seconds: 30
+  edge_bfd_convergence_timeout_seconds: 300
+  edge_bfd_convergence_max_attempts: 3
   wait_csr_generation_seconds: 30
   csr_generation_max_attempts: 3
   csr_generation_retry_wait_seconds: 5

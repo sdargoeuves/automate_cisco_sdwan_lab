@@ -224,9 +224,30 @@ def push_config_from_file(
         sys.exit(1)
 
 
+def _connection_is_alive(net_connect) -> bool:
+    remote_conn = getattr(net_connect, "remote_conn", None)
+    if getattr(remote_conn, "closed", False):
+        return False
+
+    transport = getattr(remote_conn, "transport", None)
+    if transport and not transport.is_active():
+        return False
+
+    return bool(net_connect.is_alive())
+
+
 def ensure_connection(net_connect, device_type, host, username, password):
     if net_connect:
-        return net_connect
+        try:
+            if _connection_is_alive(net_connect):
+                return net_connect
+        except Exception as exc:
+            out.log_only(f"Connection health check failed for {host}: {exc}")
+        try:
+            net_connect.disconnect()
+        except Exception:
+            pass
+        out.warning(f"Connection to {host} is closed; reconnecting...")
     return connect_to_device(device_type, host, username, password)
 
 

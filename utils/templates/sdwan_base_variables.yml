@@ -62,6 +62,12 @@ timing:
   edge_payg_activate_max_attempts: 4
   edge_payg_activate_retry_wait_seconds: 60
 
+  # Edge activations are serialized across worker threads (one edge at a time runs
+  # `vedge_cloud activate`), then this gap is observed before the next edge
+  # activates — gives vManage time to start processing the CSR so concurrent
+  # CSRs don't race on its side. Everything else stays parallel.
+  edge_activation_gap_seconds: 30
+
   # Post-activation device certificate validity check
   # (`show sdwan certificate validity` returns valid once vManage has signed and pushed
   # the device cert back to the edge over the control connection)
@@ -72,6 +78,13 @@ timing:
   edge_cert_validity_poll_interval_seconds: 15
   edge_cert_validity_timeout_seconds: 600
   edge_cert_validity_max_attempts: 2
+
+  # Final fabric convergence gate. After edge workers finish, automation polls
+  # vManage until every targeted edge has at least one BFD session up; edges
+  # still at BFD=0 are retried with a fresh cert flow up to this limit.
+  edge_bfd_convergence_poll_interval_seconds: 30
+  edge_bfd_convergence_timeout_seconds: 300
+  edge_bfd_convergence_max_attempts: 3
 
   # CSR operations
   wait_csr_generation_seconds: 30      # fixed wait on validator/controller after CSR is requested

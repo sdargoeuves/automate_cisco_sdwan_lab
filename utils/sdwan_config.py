@@ -60,9 +60,13 @@ EDGE_CERT_POLL_INTERVAL_SECONDS: int = None
 EDGE_CERT_POLL_TIMEOUT_SECONDS: int = None
 EDGE_PAYG_ACTIVATE_MAX_ATTEMPTS: int = None
 EDGE_PAYG_ACTIVATE_RETRY_WAIT_SECONDS: int = None
+EDGE_ACTIVATION_GAP_SECONDS: int = None
 EDGE_CERT_VALIDITY_POLL_INTERVAL_SECONDS: int = None
 EDGE_CERT_VALIDITY_TIMEOUT_SECONDS: int = None
 EDGE_CERT_VALIDITY_MAX_ATTEMPTS: int = None
+EDGE_BFD_CONVERGENCE_POLL_INTERVAL_SECONDS: int = None
+EDGE_BFD_CONVERGENCE_TIMEOUT_SECONDS: int = None
+EDGE_BFD_CONVERGENCE_MAX_ATTEMPTS: int = None
 NETMIKO_INCREASED_READ_TIMEOUT_SECONDS: int = None
 CSR_FILE_TIMEOUT_SECONDS: int = None
 NETMIKO_CONFIG_RETRY_ATTEMPTS: int = None
@@ -156,6 +160,7 @@ class ControllerConfig:
 @dataclass(frozen=True)
 class EdgeConfig:
     mgmt_ip: str
+    system_ip: str = ""
     username: str = USERNAME
     password: str = UPDATED_PASSWORD
     default_password: str = DEFAULT_PASSWORD
@@ -421,8 +426,11 @@ def load(variables_path=None) -> None:
     global WAIT_AFTER_GENERATING_PAYG_LICENSE_SECONDS, EDGE_CERT_POLL_INTERVAL_SECONDS
     global EDGE_CERT_POLL_TIMEOUT_SECONDS, NETMIKO_INCREASED_READ_TIMEOUT_SECONDS
     global EDGE_PAYG_ACTIVATE_MAX_ATTEMPTS, EDGE_PAYG_ACTIVATE_RETRY_WAIT_SECONDS
+    global EDGE_ACTIVATION_GAP_SECONDS
     global EDGE_CERT_VALIDITY_POLL_INTERVAL_SECONDS, EDGE_CERT_VALIDITY_TIMEOUT_SECONDS
     global EDGE_CERT_VALIDITY_MAX_ATTEMPTS
+    global EDGE_BFD_CONVERGENCE_POLL_INTERVAL_SECONDS
+    global EDGE_BFD_CONVERGENCE_TIMEOUT_SECONDS, EDGE_BFD_CONVERGENCE_MAX_ATTEMPTS
     global CSR_FILE_TIMEOUT_SECONDS, NETMIKO_CONFIG_RETRY_ATTEMPTS
     global NETMIKO_CONFIG_RETRY_WAIT_SECONDS, NETMIKO_COMMIT_READ_TIMEOUT_SECONDS
     global NETMIKO_COMMIT_RETRY_ATTEMPTS, NETMIKO_COMMIT_RETRY_WAIT_SECONDS
@@ -483,6 +491,9 @@ def load(variables_path=None) -> None:
     EDGE_PAYG_ACTIVATE_RETRY_WAIT_SECONDS = int(
         _timing.get("edge_payg_activate_retry_wait_seconds", 60)
     )
+    EDGE_ACTIVATION_GAP_SECONDS = int(
+        _timing.get("edge_activation_gap_seconds", 30)
+    )
     EDGE_CERT_VALIDITY_POLL_INTERVAL_SECONDS = int(
         _timing.get("edge_cert_validity_poll_interval_seconds", 15)
     )
@@ -491,6 +502,15 @@ def load(variables_path=None) -> None:
     )
     EDGE_CERT_VALIDITY_MAX_ATTEMPTS = int(
         _timing.get("edge_cert_validity_max_attempts", 2)
+    )
+    EDGE_BFD_CONVERGENCE_POLL_INTERVAL_SECONDS = int(
+        _timing.get("edge_bfd_convergence_poll_interval_seconds", 30)
+    )
+    EDGE_BFD_CONVERGENCE_TIMEOUT_SECONDS = int(
+        _timing.get("edge_bfd_convergence_timeout_seconds", 300)
+    )
+    EDGE_BFD_CONVERGENCE_MAX_ATTEMPTS = int(
+        _timing.get("edge_bfd_convergence_max_attempts", 3)
     )
     NETMIKO_INCREASED_READ_TIMEOUT_SECONDS = int(
         _timing.get("netmiko_increased_read_timeout_seconds", 30)
@@ -675,6 +695,7 @@ def load(variables_path=None) -> None:
     EDGES = {
         edge_name: EdgeConfig(
             mgmt_ip=_require_value(edge_device, "mgmt_ip"),
+            system_ip=_require_value(edge_device, "system_ip"),
             username=USERNAME,
             password=UPDATED_PASSWORD,
             default_password=DEFAULT_PASSWORD,

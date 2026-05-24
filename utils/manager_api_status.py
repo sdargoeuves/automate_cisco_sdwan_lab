@@ -204,3 +204,75 @@ def show_edge_health_status(manager_config, out: Output | None = None) -> None:
     for line in _build_table(headers, rows):
         print(line)
         out.log_only(line)
+
+
+def get_license_items(manager_config, out: Output | None = None) -> list[dict]:
+    """Return vManage's WAN Edge inventory (one entry per PAYG/BYOL chassis).
+
+    The endpoint is ``/dataservice/system/device/vedges`` — the same one we use
+    elsewhere to query ``vedgeCertificateState``. Each entry represents a
+    chassis vManage knows about, including orphaned ones from failed attempts.
+    """
+    out = out or Output(__name__)
+    try:
+        response = sdk_call_json(
+            manager_config,
+            "GET",
+            "/dataservice/system/device/vedges",
+        )
+    except SdkCallError as exc:
+        out.warning(str(exc))
+        return []
+
+    items = (response.get("data") or []) if response else []
+    if not items:
+        out.info("No WAN Edge inventory entries returned.")
+    return items
+
+
+def show_license_status(manager_config, out: Output | None = None) -> None:
+    """Print the PAYG / BYOL chassis inventory vManage holds.
+
+    Useful for spotting orphaned ``certinstallfailed`` chassis from earlier
+    failed runs, and for checking which edges actually completed cert install
+    (state = ``Installed`` and ``vedgeCertificateState = certinstalled``).
+    """
+    out = out or Output(__name__)
+    out.header("Configuration > Certificates")
+
+    items = get_license_items(manager_config, out=out)
+    if not items:
+        return
+
+    headers = [
+        "Chassis",
+        "Hostname",
+        "System IP",
+        "Site",
+        "Validity",
+        "State",
+        "Cert State",
+    ]
+    rows: list[list[str]] = []
+    for item in items:
+        chassis = _format_cell(item.get("chasisNumber"))
+        # Trim the leading C8K-PAYG- prefix for readability; the unique tail
+        # is what matters for spotting orphans across runs.
+        chassis_short = (
+            chassis.replace("C8K-PAYG-", "", 1) if chassis != "-" else chassis
+        )
+        rows.append(
+            [
+                chassis_short,
+                _format_cell(item.get("host-name")),
+                _format_cell(item.get("configuredSystemIP")),
+                _format_cell(item.get("site-id")),
+                _format_cell(item.get("validity")),
+                _format_cell(item.get("state")),
+                _format_cell(item.get("vedgeCertificateState")),
+            ]
+        )
+
+    for line in _build_table(headers, rows):
+        print(line)
+        out.log_only(line)

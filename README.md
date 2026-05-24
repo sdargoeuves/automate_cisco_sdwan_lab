@@ -101,12 +101,12 @@ the SD-WAN fabric, transport, and LAN devices.
 
 ```bash
 python3 -m venv .venv && source .venv/bin/activate
-pip install -e .        # or: uv pip install -e .
+pip install -e .
+# or:
+uv pip install -e .
 ```
 
 This installs `sdwan-automation` as a CLI command available anywhere in the venv.
-You can also install the traditional way with `pip install -r requirements.txt` and
-call `python sdwan_automation.py` directly.
 
 ### Install directly from GitHub
 
@@ -124,42 +124,37 @@ pip install git+https://github.com/sdargoeuves/automate_cisco_sdwan_lab.git@v1.0
 
 ## Configuration
 
-The automation reads from a single YAML variables file. Both the editable template
-(`base.yml`) and the generated output (`variables.yml`) live under
-`~/.config/sdwan-automation/` (or `$XDG_CONFIG_HOME/sdwan-automation/` if set).
-Run `sdwan-automation init` once to materialise the template; everything else
-defaults to these paths and needs no flag.
+The automation reads from:
 
-Not using netlab? Take a look at [`sdwan_variables.example.yml`](sdwan_variables.example.yml)
-— it shows the complete structure and every value you would need to fill in manually:
-management IPs, system IPs, interface names, and BGP ASNs.
+- `~/.config/sdwan-automation/base.yml`: editable template with static values.
+- `~/.config/sdwan-automation/variables.yml`: generated runtime variables.
 
-### `~/.config/sdwan-automation/base.yml`
+If `$XDG_CONFIG_HOME` is set, that directory is used instead of `~/.config`.
 
-Contains **static values** that cannot be derived from the netlab topology — edit this
-before running `generate`. Values here always win over topology data. Created by
-`sdwan-automation init` from the bundled template.
+Run `sdwan-automation init` once to create `base.yml`, then edit the static values
+that netlab cannot derive: organization name, credentials, site/VRF defaults,
+transport matching patterns, and timing.
 
-| Section | Keys | Description |
-| --- | --- | --- |
-| `shared` | `org`, `username`, `default_password`, `updated_password`, `port` | Organisation name, credentials, Manager API port |
-| `timing` | various | Startup sequencing delays, Netmiko and CSR timeouts; `edge_stagger_seconds` (default `2`) controls the delay between launching each edge in parallel |
-| `certificates` *(optional)* | `rsa_key`, `root_cert`, `signed_cert` | Override default RSA key and certificate file names |
-| `devices` | `component_site_id` | Shared site ID for Manager, Controller, and Validator |
-| `devices` | `vpn_id` | Shared VRF/VPN ID and OSPF instance ID applied to all edges |
-| `devices` | `edge_site_id_start` *(optional)* | Base for auto-assigned edge site IDs (default `100` → gives 101, 102, …). Set to `200` for 201, 202, … |
-| `devices.edges.<name>` *(optional)* | `site_id` | Per-edge site ID override — only needed when you want a specific value instead of the auto-assigned one |
-| `generate` *(optional)* | `mpls_node`, `inet_node` | Regex patterns to identify MPLS/internet transport interfaces (provided base file uses: `^mpls\d`, `^inet\d`) |
+If you use netlab, do not normally edit `variables.yml` by hand. It is produced
+by `generate` or `deploy` and combines `base.yml` with topology data.
 
-Do not set IPs, interface names, or BGP ASNs here — those come from the netlab topology.
+If you are not using netlab, create your own variables file from
+[`sdwan_variables.example.yml`](sdwan_variables.example.yml). Fill in the
+management IPs, system IPs, interface names, transport gateways, LAN interfaces,
+site IDs, and BGP ASNs manually. Then pass that file with `-f`:
 
-### `~/.config/sdwan-automation/variables.yml` (generated output)
+```bash
+cp sdwan_variables.example.yml ~/my-sdwan-variables.yml
+vi ~/my-sdwan-variables.yml
+sdwan-automation -f ~/my-sdwan-variables.yml first-boot
+sdwan-automation -f ~/my-sdwan-variables.yml edges all --extra-routing
+```
 
-Produced by `generate`/`deploy`; consumed by all automation subcommands. Do not edit
-manually. Combines `base.yml` with management IPs, system IPs, data-plane interface
-names/IPs/gateways (MPLS, internet, LAN), and BGP ASNs from the topology. See
-[`sdwan_variables.example.yml`](sdwan_variables.example.yml) for the complete structure
-and all available keys.
+With a manual variables file, skip `generate` and `deploy`; those commands are
+for netlab-derived topology data.
+
+For details on topology mapping, edge site ID assignment, and interface
+classification, see [`docs/topology-generation.md`](docs/topology-generation.md).
 
 ## Usage
 
@@ -186,67 +181,12 @@ sdwan-automation generate --host-vars ../host_vars
 sdwan-automation generate --host-vars ../host_vars -o /tmp/sdwan_variables-test.yml
 ```
 
-| Flag | Default | Description |
-| --- | --- | --- |
-| `--host-vars` | *(required)* | Path to the host_vars (topology) directory |
-| `-b` / `--base` | `~/.config/sdwan-automation/base.yml` | Base YAML with static values |
-| `-o` / `--output` | `~/.config/sdwan-automation/variables.yml` | Output file |
-
-#### How device and interface mapping works
-
-The generator scans every `host_vars/<device>/topology.json` and maps devices as follows:
-
-| Directory name | Mapped to | Detection method |
-| --- | --- | --- |
-| `sdwan-manager` | `devices.manager` | directory name |
-| `sdwan-controller` | `devices.controller` | directory name |
-| `sdwan-validator` | `devices.validator` | directory name |
-| any other dir | `devices.edges.<name>` | `clab.kind == cisco_c8000v` |
-| everything else | skipped | — |
-
-Edge site IDs are auto-assigned as `edge_site_id_start + n` (edges sorted alphabetically,
-1-indexed). With the default `edge_site_id_start: 100`, three edges get 101, 102, 103.
-Per-device overrides in `base.yml` under `devices.edges.<name>.site_id` always
-take precedence. Any `devices.edges` entries in the base file that have no
-corresponding topology device are silently pruned from the output.
-
-Control-plane devices use `interfaces[0]` for transport IP/prefix/gateway. Validator
-interface names are translated from Linux `ethX` to vBond `ge0/X` notation.
-
-Edge interfaces are classified by matching the **neighbor node name** against regex patterns:
-
-| Pattern (in provided base file) | Mapped to | Output keys |
-| --- | --- | --- |
-| `^mpls\d` | MPLS transport | `mpls_interface`, `mpls_ip`, `mpls_mask`, `mpls_gw`, `mpls_desc` |
-| `^inet\d` | Internet transport | `inet_interface`, `inet_ip`, `inet_mask`, `inet_gw`, `inet_desc` |
-| no match | LAN | entry in `lan_interfaces` list |
-
-BGP ASNs follow the same patterns (`bgp_mpls_as`, `bgp_inet_as`; `bgp_local_as` from `bgp.as`).
-
-Override patterns under `generate:` in `base.yml`. Any valid Python regex is
-accepted — **quote values** that start with `^` or contain `|` or `\`:
-
-```yaml
-generate:
-  mpls_node: '^mpls\d'       # matches mpls0, mpls1, but NOT mpls-provider
-  inet_node: 'inet|internet' # matches either "inet" or "internet"
-```
-
-This section is stripped from the output file.
-
 ### Deploy (Generate + First-Boot in one step)
 
 ```bash
 sdwan-automation deploy --host-vars ../host_vars
 sdwan-automation deploy --host-vars ../host_vars -b /tmp/sdwan_base_netlab.yml -o /tmp/sdwan_variables-netlab.yml
 ```
-
-| Flag | Default | Description |
-| --- | --- | --- |
-| `--host-vars` | *(required)* | Path to the host_vars (topology) directory |
-| `-b` / `--base` | `~/.config/sdwan-automation/base.yml` | Base YAML with static values |
-| `-o` / `--output` | `~/.config/sdwan-automation/variables.yml` | Output variables file (also loaded for automation) |
-| `-v` / `--verbose` | — | Enable verbose logging output |
 
 If you override `-o`, pass the same path to subsequent subcommands with `--variables-file` to re-run individual steps.
 
@@ -292,12 +232,16 @@ Edge options:
   **OSPF area 0.0.0.0** — LAN-side neighbors must also be configured for area 0.0.0.0.
 
 Edge targets must match the keys under `devices.edges`. Using `edges all` selects every
-edge in the variables file.
+edge in the variables file. When `--cert` is used for multiple edges, the command
+also waits for BFD convergence in vManage after the worker phase. Edges still at
+BFD=0 are retried with a fresh certificate/license flow up to the configured
+`edge_bfd_convergence_max_attempts` limit.
 
 ### Show Devices Status
 
 ```bash
 sdwan-automation show devices
+sdwan-automation show licenses
 ```
 
 ### SDK passthrough
@@ -322,6 +266,8 @@ or `~/.config/sdwan-automation/logs/` by default):
 ## Project Layout
 
 - `sdwan_automation.py`: CLI entry point
+- `docs/architecture.md`: maintainer guide explaining internal flow, retry logic,
+  and component responsibilities
 - `utils/templates/sdwan_base_variables.yml`: bundled base template — copied to
   `~/.config/sdwan-automation/base.yml` by `sdwan-automation init`
 - `sdwan_variables.example.yml`: example of a generated variables file (reference for structure)

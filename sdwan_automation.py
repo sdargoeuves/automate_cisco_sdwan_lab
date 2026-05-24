@@ -33,6 +33,7 @@ Usage:
 """
 
 import argparse
+import shlex
 import sys
 from pathlib import Path
 
@@ -50,9 +51,22 @@ from utils.config_paths import (
 )
 from utils.generate_sdwan_vars import run as _generate_vars
 from utils.logging import setup_logging
-from utils.manager_api_status import show_controller_status, show_edge_health_status
+from utils.manager_api_status import (
+    show_controller_status,
+    show_edge_health_status,
+    show_license_status,
+)
 from utils.output import Output
+from utils.run_stats import increment as increment_run_stat
+from utils.run_stats import phase, start as start_run_stats
 from utils.sdwan_sdk import run_sdwan_cli
+
+
+def _command_line_for_log() -> str:
+    executable = Path(sys.argv[0]).name or "sdwan-automation"
+    if executable.startswith("sdwan_automation"):
+        executable = "sdwan-automation"
+    return shlex.join([executable, *sys.argv[1:]])
 
 
 def _run_all(out: Output) -> None:
@@ -62,37 +76,52 @@ def _run_all(out: Output) -> None:
     Configurable wait times between each component are read from settings.
     """
     out.log_only("Run start component=all (first-boot on all components)")
+    increment_run_stat("first_boot_runs")
     out.banner("Cisco SD-WAN Full Automation Script")
 
-    run_manager_automation(settings.manager, initial_config=True, cert=True)
-    out.spinner_wait(
-        f"Waiting {settings.WAIT_BEFORE_AUTOMATING_VALIDATOR_SECONDS}s before starting Validator automation...",
-        settings.WAIT_BEFORE_AUTOMATING_VALIDATOR_SECONDS,
-    )
-    run_validator_automation(settings.validator, initial_config=True, cert=True)
-    out.spinner_wait(
-        f"Waiting {settings.WAIT_BEFORE_AUTOMATING_CONTROLLER_SECONDS}s before starting Controller automation...",
-        settings.WAIT_BEFORE_AUTOMATING_CONTROLLER_SECONDS,
-    )
-    run_controller_automation(settings.controller, initial_config=True, cert=True)
-    show_controller_status(settings.manager, out=out)
+    with phase("manager"):
+        run_manager_automation(settings.manager, initial_config=True, cert=True)
+    with phase("wait_before_validator"):
+        out.spinner_wait(
+            f"Waiting {settings.WAIT_BEFORE_AUTOMATING_VALIDATOR_SECONDS}s before starting Validator automation...",
+            settings.WAIT_BEFORE_AUTOMATING_VALIDATOR_SECONDS,
+        )
+    with phase("validator"):
+        run_validator_automation(settings.validator, initial_config=True, cert=True)
+    with phase("wait_before_controller"):
+        out.spinner_wait(
+            f"Waiting {settings.WAIT_BEFORE_AUTOMATING_CONTROLLER_SECONDS}s before starting Controller automation...",
+            settings.WAIT_BEFORE_AUTOMATING_CONTROLLER_SECONDS,
+        )
+    with phase("controller"):
+        run_controller_automation(settings.controller, initial_config=True, cert=True)
+    with phase("controller_status"):
+        show_controller_status(settings.manager, out=out)
 
     # Verify controllers are in sync (and reboot + wait if not) BEFORE starting edges.
     # Otherwise an out-of-sync vBond/vSmart reboot would race against edges joining
     # the fabric, leaving them with no BFD.
-    reboot_out_of_sync_components(settings.manager)
+    with phase("controller_sync"):
+        reboot_out_of_sync_components(settings.manager)
 
     edge_configs = list(settings.EDGES.values())
     if not edge_configs:
         out.warning("No edges defined in sdwan_variables.yml")
     else:
-        run_edges_automation(edge_configs, initial_config=True, cert=True, stagger_seconds=settings.EDGE_STAGGER_SECONDS)
+        with phase("edges"):
+            run_edges_automation(
+                edge_configs,
+                initial_config=True,
+                cert=True,
+                stagger_seconds=settings.EDGE_STAGGER_SECONDS,
+            )
 
     out.header("All Components Complete")
     out.success(
         "First-boot automation finished for Manager, Validator, Controller, and Edges"
     )
-    show_edge_health_status(settings.manager, out=out)
+    with phase("edge_health_status"):
+        show_edge_health_status(settings.manager, out=out)
 
 
 def main():
@@ -327,7 +356,7 @@ def main():
     show_parser.set_defaults(_parser=show_parser)
     show_parser.add_argument(
         "resource",
-        choices=["devices"],
+        choices=["devices", "licenses"],
         help="Status table to display",
     )
     show_parser.add_argument(
@@ -401,6 +430,8 @@ def main():
         settings.load(str(output_path))
         setup_logging(args.verbose)
         out = Output(__name__)
+        start_run_stats(_command_line_for_log(), out)
+        out.log_only(f"========== RUN START: {_command_line_for_log()} ==========")
         out.info(f"Variables → {settings._VARIABLES_PATH}")
         _run_all(out)
         return
@@ -419,6 +450,8 @@ def main():
         sys.exit(1)
     setup_logging(args.verbose)
     out = Output(__name__)
+    start_run_stats(_command_line_for_log(), out)
+    out.log_only(f"========== RUN START: {_command_line_for_log()} ==========")
     out.info(f"Variables → {settings._VARIABLES_PATH}")
 
     # Handle "first-boot" component - runs first-boot on every component
@@ -451,9 +484,12 @@ def main():
     # If no action flags provided for the component, show help
     if args.component == "show":
         out.banner("Cisco SD-WAN Show Information")
-        if args.resource == "devices":
-            show_controller_status(settings.manager, out=out)
-            show_edge_health_status(settings.manager, out=out)
+        with phase(f"show_{args.resource}"):
+            if args.resource == "devices":
+                show_controller_status(settings.manager, out=out)
+                show_edge_health_status(settings.manager, out=out)
+            elif args.resource == "licenses":
+                show_license_status(settings.manager, out=out)
         return
     if args.component == "edges":
         has_config_file = hasattr(args, "config_file") and args.config_file
@@ -493,14 +529,15 @@ def main():
                     sys.exit(1)
                 edge_configs.append(config)
 
-        run_edges_automation(
-            edge_configs,
-            initial_config=args.initial_config,
-            config_file=args.config_file,
-            cert=args.cert,
-            extra_routing=args.extra_routing,
-            stagger_seconds=settings.EDGE_STAGGER_SECONDS,
-        )
+        with phase("edges"):
+            run_edges_automation(
+                edge_configs,
+                initial_config=args.initial_config,
+                config_file=args.config_file,
+                cert=args.cert,
+                extra_routing=args.extra_routing,
+                stagger_seconds=settings.EDGE_STAGGER_SECONDS,
+            )
         out.header("Edges Complete")
         out.success("Edge automation finished")
         return
@@ -508,7 +545,8 @@ def main():
         if not args.sdk_args:
             out.warning("No SDK arguments provided. Example: sdk show device")
             return
-        result = run_sdwan_cli(settings, args.sdk_args)
+        with phase("sdk"):
+            result = run_sdwan_cli(settings, args.sdk_args)
         if result != 0:
             raise SystemExit(result)
         return
@@ -522,38 +560,43 @@ def main():
     if args.first_boot:
         args.initial_config = True
         args.cert = True
+        increment_run_stat("first_boot_runs")
 
     out.banner("Cisco SD-WAN Automation Script")
 
     if args.component == "manager":
-        run_manager_automation(
-            settings.manager,
-            initial_config=args.initial_config,
-            cert=args.cert,
-            config_file=args.config_file,
-        )
+        with phase("manager"):
+            run_manager_automation(
+                settings.manager,
+                initial_config=args.initial_config,
+                cert=args.cert,
+                config_file=args.config_file,
+            )
         out.header("Manager Complete")
         out.success("Manager automation finished")
     elif args.component == "validator":
-        run_validator_automation(
-            settings.validator,
-            initial_config=args.initial_config,
-            cert=args.cert,
-            config_file=args.config_file,
-        )
+        with phase("validator"):
+            run_validator_automation(
+                settings.validator,
+                initial_config=args.initial_config,
+                cert=args.cert,
+                config_file=args.config_file,
+            )
         out.header("Validator Complete")
         out.success("Validator automation finished")
     elif args.component == "controller":
-        run_controller_automation(
-            settings.controller,
-            initial_config=args.initial_config,
-            cert=args.cert,
-            config_file=args.config_file,
-        )
+        with phase("controller"):
+            run_controller_automation(
+                settings.controller,
+                initial_config=args.initial_config,
+                cert=args.cert,
+                config_file=args.config_file,
+            )
         out.header("Controller Complete")
         out.success("Controller automation finished")
 
-    show_controller_status(settings.manager, out=out)
+    with phase("controller_status"):
+        show_controller_status(settings.manager, out=out)
 
 
 if __name__ == "__main__":
