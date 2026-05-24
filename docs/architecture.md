@@ -14,8 +14,8 @@ The tool automates a Cisco SD-WAN lab in this order:
 4. Configure and certificate-enable vSmart.
 5. Configure WAN edges, generate PAYG licenses, activate them, and wait for the
    edges to join the fabric.
-6. For multi-edge certificate runs, verify final BFD convergence and retry only
-   the edges that did not converge.
+6. For multi-edge certificate runs, verify control-plane fabric membership
+   first, retry only edges that did not join, then verify final BFD convergence.
 
 The main entry point is `sdwan_automation.py`. It parses CLI arguments, loads
 settings through `utils/sdwan_config.py`, initializes logging, and dispatches to
@@ -64,6 +64,19 @@ successful while later BFD fails if vBond or vSmart is rebooting or out of sync.
 
 Edges are handled as a parallel worker phase, but some edge certificate steps are
 serialized internally. See the edge section below.
+
+In the surrounding Ansible workflow, Day 1 starts `sdwan-automation deploy`.
+That command still uses the tool's built-in retry budget. If one edge remains
+outside the fabric after those retries, Day 1 is allowed to continue as long as
+the async deploy process actually completed. Day 2 then runs the targeted repair
+command:
+
+```bash
+sdwan-automation edges failed --cert
+```
+
+This gives vManage and the lab more time to settle before trying only the edges
+that are still missing full control-plane membership.
 
 ## Manager Certificate Flow
 
@@ -203,7 +216,7 @@ does not clear control connections. In that state vManage has not completed the
 signing or delivery phase, so clearing is more likely to disrupt than fix the
 flow.
 
-### Orchestrator-Level BFD Retry
+### Orchestrator-Level Fabric Retry
 
 For multi-edge `--cert` runs, `run_edges_automation()` performs shared
 convergence checks after the worker phase.
@@ -217,6 +230,11 @@ control_connections_up >= 2
 If some edges do not reach that state, only those control-down edges are retried
 with a fresh certificate/license flow. Edges that already have both control
 connections are not retried, because they are already authenticated.
+
+During this shared fabric gate, the code also watches the latest generated
+chassis ID for each down edge. If vManage moves that chassis to
+`certinstallfailed`, the gate stops waiting and retries that edge immediately
+instead of burning the full fabric timeout.
 
 Only after all targeted edges have joined the fabric does it check BFD:
 
@@ -232,6 +250,24 @@ authenticated.
 This exists because BFD is a final fabric-level condition. It should not be used
 as the per-edge certificate success signal during the first worker phase: the
 first edge to join a fresh lab may have no BFD peers yet.
+
+### Targeted Repair Runs
+
+The CLI supports a repair target:
+
+```bash
+sdwan-automation edges failed --cert
+```
+
+`failed` selects configured edges whose vManage health entry has fewer than two
+control connections. This is intentionally not based on BFD. If an edge has
+`2/2` control connections but BFD is down, the certificate has already done its
+job and the problem is likely data-plane, TLOC, or routing.
+
+This target is useful in orchestrators such as Ansible. Day 1 can run full
+first-boot with the built-in retry budget, tolerate an edge that is still not in
+fabric, and Day 2 can run `edges failed --cert` after the lab has had more time
+to settle.
 
 ## Logging
 
@@ -257,6 +293,9 @@ read.
 Useful log patterns:
 
 - `RUN START` identifies command boundaries.
+- `Run Summary` appears for automation commands and records total runtime,
+  slowest phases, and retry counters. It is intentionally suppressed for
+  read-only `show` and `sdk` commands.
 - `Edge has joined the SD-WAN fabric` means vManage reports at least two control
   connections for that edge.
 - `BFD did not converge before timeout` means certificate install may have

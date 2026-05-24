@@ -58,6 +58,7 @@ from utils.manager_api_status import (
     show_license_status,
 )
 from utils.output import Output
+from utils.run_stats import disable as disable_run_stats
 from utils.run_stats import increment as increment_run_stat
 from utils.run_stats import phase, start as start_run_stats
 from utils.sdwan_sdk import run_sdwan_cli
@@ -490,7 +491,10 @@ def main():
         sys.exit(1)
     setup_logging(args.verbose)
     out = Output(__name__)
-    start_run_stats(_command_line_for_log(), out)
+    if args.component in {"show", "sdk"}:
+        disable_run_stats()
+    else:
+        start_run_stats(_command_line_for_log(), out)
     out.log_only(f"========== RUN START: {_command_line_for_log()} ==========")
     out.info(f"Variables → {settings._VARIABLES_PATH}")
 

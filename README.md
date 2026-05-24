@@ -219,6 +219,7 @@ sdwan-automation edges all --first-boot
 sdwan-automation edges all --extra-routing
 sdwan-automation edges edge1,edge2 --initial-config
 sdwan-automation edges edge1 --cert
+sdwan-automation edges failed --cert
 sdwan-automation edges edge1 --config-file myconfig.txt
 ```
 
@@ -232,10 +233,16 @@ Edge options:
   **OSPF area 0.0.0.0** — LAN-side neighbors must also be configured for area 0.0.0.0.
 
 Edge targets must match the keys under `devices.edges`. Using `edges all` selects every
-edge in the variables file. When `--cert` is used for multiple edges, the command
-also waits for BFD convergence in vManage after the worker phase. Edges still at
-BFD=0 are retried with a fresh certificate/license flow up to the configured
-`edge_bfd_convergence_max_attempts` limit.
+edge in the variables file. `edges failed --cert` selects configured edges that
+currently have fewer than two vManage control connections, which is the repair
+path for edges that did not complete certificate onboarding.
+
+When `--cert` is used for multiple edges, the command first waits for every
+targeted edge to join the control fabric (`control_connections_up >= 2`). Only
+edges that fail that control-plane gate are retried with a fresh
+certificate/license flow. BFD is checked only after all targeted edges have
+joined the fabric; if BFD still fails, the tool treats that as a data-plane/TLOC
+issue rather than continuing to regenerate certificates.
 
 ### Show Devices Status
 

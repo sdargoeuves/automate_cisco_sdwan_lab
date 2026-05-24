@@ -38,6 +38,12 @@ def start(command: str, out) -> None:
     _out = out
 
 
+def disable() -> None:
+    global _current, _out
+    _current = None
+    _out = None
+
+
 def increment(name: str, amount: int = 1) -> None:
     if _current:
         _current.increment(name, amount)
