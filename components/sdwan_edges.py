@@ -821,20 +821,29 @@ def run_edges_automation(
     phase_initial_config = initial_config
     phase_config_file = config_file
     phase_extra_routing = extra_routing
+    edge_attempts = {
+        edge_name_by_id.get(id(cfg), "edge"): 0 for cfg in edge_configs
+    }
+    round_number = 0
 
-    for attempt in range(1, max_attempts + 1):
-        if cert and attempt > 1:
+    while phase_edge_configs:
+        round_number += 1
+        phase_names = [
+            edge_name_by_id.get(id(cfg), "edge") for cfg in phase_edge_configs
+        ]
+        for name in phase_names:
+            edge_attempts[name] = edge_attempts.get(name, 0) + 1
+
+        if cert and round_number > 1:
             increment_run_stat("edge_retry_rounds")
-            retry_names_display = ", ".join(
-                sorted(
-                    edge_name_by_id.get(id(cfg), "edge")
-                    for cfg in phase_edge_configs
-                )
+            retry_names_display = ", ".join(sorted(phase_names))
+            attempt_display = ", ".join(
+                f"{name} {edge_attempts[name]}/{max_attempts}"
+                for name in sorted(phase_names)
             )
             out.header(
-                "Retrying edge cert flow for fabric convergence "
-                f"(attempt {attempt}/{max_attempts})",
-                f"Targets: {retry_names_display}",
+                "Retrying edge cert flow for fabric convergence",
+                f"Targets: {retry_names_display} (attempts: {attempt_display})",
             )
 
         failed = _run_edges_worker_phase(
@@ -889,10 +898,14 @@ def run_edges_automation(
         if not retry_names:
             return
 
-        if attempt >= max_attempts:
+        exhausted_retry_names = [
+            name for name in retry_names if edge_attempts.get(name, 0) >= max_attempts
+        ]
+        if exhausted_retry_names:
             out.error(
-                "Edge fabric convergence failed after retries for: "
-                + ", ".join(retry_names)
+                "Edge fabric convergence failed after per-edge retry budget "
+                "was exhausted for: "
+                + ", ".join(sorted(exhausted_retry_names))
             )
             raise SystemExit(1)
 

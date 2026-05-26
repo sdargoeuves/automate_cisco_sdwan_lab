@@ -4,6 +4,9 @@ This document explains how the automation works behind the scenes. It is meant
 for maintainers and debuggers. The README remains the user guide for installing
 and running the CLI.
 
+For a compact handoff aimed at future LLM/debugging sessions, see
+`docs/llm-context.md`.
+
 ## Mental Model
 
 The tool automates a Cisco SD-WAN lab in this order:
@@ -235,6 +238,11 @@ During this shared fabric gate, the code also watches the latest generated
 chassis ID for each down edge. If vManage moves that chassis to
 `certinstallfailed`, the gate stops waiting and retries that edge immediately
 instead of burning the full fabric timeout.
+
+The retry budget is tracked per edge, not per command. This matters when several
+edges fail at different times: one edge can be retried without consuming the
+entire budget for another edge that has not yet had the same number of repair
+attempts.
 
 Only after all targeted edges have joined the fabric does it check BFD:
 

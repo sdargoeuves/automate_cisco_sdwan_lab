@@ -275,6 +275,7 @@ or `~/.config/sdwan-automation/logs/` by default):
 - `sdwan_automation.py`: CLI entry point
 - `docs/architecture.md`: maintainer guide explaining internal flow, retry logic,
   and component responsibilities
+- `docs/llm-context.md`: compact handoff for future LLM/debugging sessions
 - `utils/templates/sdwan_base_variables.yml`: bundled base template — copied to
   `~/.config/sdwan-automation/base.yml` by `sdwan-automation init`
 - `sdwan_variables.example.yml`: example of a generated variables file (reference for structure)
