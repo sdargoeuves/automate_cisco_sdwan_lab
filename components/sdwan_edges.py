@@ -175,6 +175,42 @@ def _clear_sdwan_control_connections(net_connect) -> None:
     out.log_only(output)
 
 
+def _capture_edge_cert_diagnostics(
+    net_connect,
+    chassis_id: str,
+    cert_state: str | None,
+) -> None:
+    """Log a compact edge-side snapshot when certificate onboarding fails."""
+    out.warning(
+        "Capturing edge certificate diagnostics in the log "
+        f"(chassis {chassis_id}, vManage state {cert_state!r})."
+    )
+    commands = [
+        "show sdwan control connections",
+        "show sdwan control connections-history",
+        "show sdwan certificate installed",
+        "show sdwan certificate validity",
+        (
+            "show logging | include "
+            "CERT|VDAEMON|SYSTEM_LICENSE|CONTROL_CONN|CSR|ROOT_CERT"
+        ),
+    ]
+    for command in commands:
+        try:
+            output = net_connect.send_command_timing(
+                command,
+                strip_prompt=False,
+                strip_command=False,
+            )
+        except Exception as exc:  # pragma: no cover - defensive diagnostic path
+            out.log_only(
+                f"Diagnostic command failed: {command}: {exc}",
+                level="warning",
+            )
+            continue
+        out.log_only(f"=== Edge cert diagnostic: {command} ===\n{output}")
+
+
 def _is_edge_in_fabric(manager_config, system_ip: str) -> bool:
     """Has this edge joined the SD-WAN fabric, per vManage?
 
@@ -309,6 +345,7 @@ def _try_install_device_cert(
             return True
 
         if attempt >= max_attempts:
+            _capture_edge_cert_diagnostics(net_connect, chassis_id, cert_state)
             return False
 
         out.info(
@@ -337,6 +374,7 @@ def _try_install_device_cert(
             "vManage cert config (Administration → Settings → Certificate "
             "Authorization, or check pending CSRs)."
         )
+        _capture_edge_cert_diagnostics(net_connect, chassis_id, cert_state)
         return False
 
     return False
