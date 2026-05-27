@@ -25,6 +25,9 @@ Usage:
     # Show Manager status tables:
     sdwan-automation show devices
 
+    # Show installed version and package location:
+    sdwan-automation version
+
     # Call the sdwan SDK CLI directly using `sdk` and passing all arguments after it:
     sdwan-automation sdk show dev
 
@@ -33,7 +36,9 @@ Usage:
 """
 
 import argparse
+import importlib.metadata
 import shlex
+import shutil
 import sys
 from pathlib import Path
 
@@ -64,11 +69,45 @@ from utils.run_stats import phase, start as start_run_stats
 from utils.sdwan_sdk import run_sdwan_cli
 
 
+PACKAGE_NAME = "sdwan-automation"
+PACKAGE_DEPENDENCIES = [
+    "netmiko",
+    "requests",
+    "cisco-sdwan",
+    "PyYAML",
+]
+
+
 def _command_line_for_log() -> str:
     executable = Path(sys.argv[0]).name or "sdwan-automation"
     if executable.startswith("sdwan_automation"):
         executable = "sdwan-automation"
     return shlex.join([executable, *sys.argv[1:]])
+
+
+def _installed_version(distribution_name: str) -> str:
+    try:
+        return importlib.metadata.version(distribution_name)
+    except importlib.metadata.PackageNotFoundError:
+        return "not installed"
+
+
+def _print_version() -> None:
+    executable = shutil.which(Path(sys.argv[0]).name) or sys.argv[0]
+    package_file = Path(__file__).resolve()
+    package_locations = [
+        str(package_file),
+        str(package_file.parent / "components"),
+        str(package_file.parent / "utils"),
+    ]
+
+    print(f"sdwan-automation version {_installed_version(PACKAGE_NAME)}")
+    print(f"  executable location: {executable}")
+    print(f"  package location: {package_locations}")
+    print()
+    print("Required packages:")
+    for dependency in PACKAGE_DEPENDENCIES:
+        print(f"  {dependency}: {_installed_version(dependency)}")
 
 
 def _edge_configs_needing_cert_repair(out: Output) -> list[settings.EdgeConfig]:
@@ -321,6 +360,12 @@ def main():
         help="Overwrite an existing base.yml",
     )
 
+    version_parser = subparsers.add_parser(
+        "version",
+        help="Show sdwan-automation version and install location",
+    )
+    version_parser.set_defaults(_parser=version_parser)
+
     generate_parser = subparsers.add_parser(
         "generate",
         help="Generate sdwan_variables YAML from netlab topology files",
@@ -429,6 +474,11 @@ def main():
     if not args.component:
         parser.print_help()
         sys.exit(0)
+
+    # `version` must work before init/generate and without SD-WAN variables.
+    if args.component == "version":
+        _print_version()
+        return
 
     # `init` does not need SDWAN settings or logging
     if args.component == "init":
