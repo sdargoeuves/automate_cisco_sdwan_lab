@@ -251,6 +251,12 @@ sdwan-automation show devices
 sdwan-automation show licenses
 ```
 
+### Version
+
+```bash
+sdwan-automation version
+```
+
 ### SDK passthrough
 
 Run any [Sastre](https://github.com/CiscoDevNet/sastre) SDK CLI command without retyping credentials:
