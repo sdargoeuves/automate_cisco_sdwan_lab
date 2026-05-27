@@ -4,35 +4,36 @@ Simple Cisco SD-WAN Certificate Automation
 Uses Netmiko for better Viptela/SD-WAN CLI handling
 
 Usage:
-    # Components actions:
-    ./sdwan_automation.py [manager, validator, controller] --first-boot
-    ./sdwan_automation.py [manager, validator, controller] --cert
-    ./sdwan_automation.py [manager, validator, controller] --initial-config
-    ./sdwan_automation.py [manager, validator, controller] --config-file myconfig.txt
-    ./sdwan_automation.py [manager, validator, controller] --cert --config-file additional.txt
+    # One-time setup — copy the bundled base template into ~/.config/sdwan-automation/:
+    sdwan-automation init
+
+    # Generate the variables file from netlab topology (defaults to ~/.config/sdwan-automation/variables.yml):
+    sdwan-automation generate --host-vars ../host_vars
+
+    # Components actions (all read ~/.config/sdwan-automation/variables.yml by default):
+    sdwan-automation [manager, validator, controller] --first-boot
+    sdwan-automation [manager, validator, controller] --cert
+    sdwan-automation [manager, validator, controller] --initial-config
+    sdwan-automation [manager, validator, controller] --config-file myconfig.txt
 
     # Use a custom variables file (must come before the subcommand):
-    ./sdwan_automation.py --variables-file /path/to/other_sdwan_variables.yml manager --first-boot
+    sdwan-automation -f /path/to/other_sdwan_variables.yml manager --first-boot
 
-    # Run first-boot on all components:
-    ./sdwan_automation.py all
+    # Run first-boot on all components (Manager, Validator, Controller, Edges):
+    sdwan-automation first-boot
 
     # Show Manager status tables:
-    ./sdwan_automation.py show devices
+    sdwan-automation show devices
 
     # Call the sdwan SDK CLI directly using `sdk` and passing all arguments after it:
-    ./sdwan_automation.py sdk show dev
-
-    # Generate variables file from netlab topology (output goes to <script dir> by default):
-    ./sdwan_automation.py generate --host-vars ../host_vars
-    ./sdwan_automation.py generate --host-vars ../host_vars -o /path/to/sdwan_variables-test.yml
+    sdwan-automation sdk show dev
 
     # Generate variables AND run first-boot on all components (single step for netlab):
-    ./sdwan_automation.py deploy --host-vars ../host_vars
-    ./sdwan_automation.py deploy --host-vars ../host_vars -b sdwan_base_netlab.yml -o /path/to/sdwan_variables-netlab.gen.yml
+    sdwan-automation deploy --host-vars ../host_vars
 """
 
 import argparse
+import shlex
 import sys
 from pathlib import Path
 
@@ -42,12 +43,68 @@ from components.sdwan_manager import run_manager_automation
 from components.sdwan_validator import run_validator_automation
 from utils import sdwan_config as settings
 from utils.component_sync import reboot_out_of_sync_components
-from utils.generate_sdwan_vars import SCRIPT_DIR as _SCRIPT_DIR
+from utils.config_paths import (
+    install_base_template,
+    user_base_path,
+    user_config_dir,
+    user_variables_path,
+)
 from utils.generate_sdwan_vars import run as _generate_vars
 from utils.logging import setup_logging
-from utils.manager_api_status import show_controller_status, show_edge_health_status
+from utils.manager_api_status import (
+    get_edge_health_items,
+    show_controller_status,
+    show_edge_health_status,
+    show_license_status,
+)
 from utils.output import Output
+from utils.run_stats import disable as disable_run_stats
+from utils.run_stats import increment as increment_run_stat
+from utils.run_stats import phase, start as start_run_stats
 from utils.sdwan_sdk import run_sdwan_cli
+
+
+def _command_line_for_log() -> str:
+    executable = Path(sys.argv[0]).name or "sdwan-automation"
+    if executable.startswith("sdwan_automation"):
+        executable = "sdwan-automation"
+    return shlex.join([executable, *sys.argv[1:]])
+
+
+def _edge_configs_needing_cert_repair(out: Output) -> list[settings.EdgeConfig]:
+    """Return configured edges that have not fully joined the control fabric.
+
+    This is intentionally control-plane based, not BFD based. If an edge has
+    fewer than 2 control connections it is still in the cert/onboarding problem
+    space. If all control connections are up but BFD is down, retrying certs is
+    the wrong remediation.
+    """
+    health_by_system_ip = {
+        item.get("system_ip"): item for item in get_edge_health_items(settings.manager)
+    }
+    selected = []
+    selected_names = []
+    for edge_name, edge_config in settings.EDGES.items():
+        item = health_by_system_ip.get(edge_config.system_ip)
+        control_up = item.get("control_connections_up") if item else 0
+        try:
+            control_up_int = int(control_up or 0)
+        except (TypeError, ValueError):
+            control_up_int = 0
+        if control_up_int < 2:
+            selected.append(edge_config)
+            selected_names.append(edge_name)
+
+    if selected_names:
+        out.info(
+            "Selected edges needing cert repair: " + ", ".join(sorted(selected_names))
+        )
+    else:
+        out.success(
+            "No edges need cert repair; all configured edges have 2 control "
+            "connections."
+        )
+    return selected
 
 
 def _run_all(out: Output) -> None:
@@ -57,33 +114,52 @@ def _run_all(out: Output) -> None:
     Configurable wait times between each component are read from settings.
     """
     out.log_only("Run start component=all (first-boot on all components)")
+    increment_run_stat("first_boot_runs")
     out.banner("Cisco SD-WAN Full Automation Script")
 
-    run_manager_automation(settings.manager, initial_config=True, cert=True)
-    out.spinner_wait(
-        f"Waiting {settings.WAIT_BEFORE_AUTOMATING_VALIDATOR_SECONDS}s before starting Validator automation...",
-        settings.WAIT_BEFORE_AUTOMATING_VALIDATOR_SECONDS,
-    )
-    run_validator_automation(settings.validator, initial_config=True, cert=True)
-    out.spinner_wait(
-        f"Waiting {settings.WAIT_BEFORE_AUTOMATING_CONTROLLER_SECONDS}s before starting Controller automation...",
-        settings.WAIT_BEFORE_AUTOMATING_CONTROLLER_SECONDS,
-    )
-    run_controller_automation(settings.controller, initial_config=True, cert=True)
-    show_controller_status(settings.manager, out=out)
+    with phase("manager"):
+        run_manager_automation(settings.manager, initial_config=True, cert=True)
+    with phase("wait_before_validator"):
+        out.spinner_wait(
+            f"Waiting {settings.WAIT_BEFORE_AUTOMATING_VALIDATOR_SECONDS}s before starting Validator automation...",
+            settings.WAIT_BEFORE_AUTOMATING_VALIDATOR_SECONDS,
+        )
+    with phase("validator"):
+        run_validator_automation(settings.validator, initial_config=True, cert=True)
+    with phase("wait_before_controller"):
+        out.spinner_wait(
+            f"Waiting {settings.WAIT_BEFORE_AUTOMATING_CONTROLLER_SECONDS}s before starting Controller automation...",
+            settings.WAIT_BEFORE_AUTOMATING_CONTROLLER_SECONDS,
+        )
+    with phase("controller"):
+        run_controller_automation(settings.controller, initial_config=True, cert=True)
+    with phase("controller_status"):
+        show_controller_status(settings.manager, out=out)
+
+    # Verify controllers are in sync (and reboot + wait if not) BEFORE starting edges.
+    # Otherwise an out-of-sync vBond/vSmart reboot would race against edges joining
+    # the fabric, leaving them with no BFD.
+    with phase("controller_sync"):
+        reboot_out_of_sync_components(settings.manager)
 
     edge_configs = list(settings.EDGES.values())
     if not edge_configs:
         out.warning("No edges defined in sdwan_variables.yml")
     else:
-        run_edges_automation(edge_configs, initial_config=True, cert=True, stagger_seconds=settings.EDGE_STAGGER_SECONDS)
+        with phase("edges"):
+            run_edges_automation(
+                edge_configs,
+                initial_config=True,
+                cert=True,
+                stagger_seconds=settings.EDGE_STAGGER_SECONDS,
+            )
 
     out.header("All Components Complete")
     out.success(
         "First-boot automation finished for Manager, Validator, Controller, and Edges"
     )
-    reboot_out_of_sync_components(settings.manager)
-    show_edge_health_status(settings.manager, out=out)
+    with phase("edge_health_status"):
+        show_edge_health_status(settings.manager, out=out)
 
 
 def main():
@@ -194,7 +270,10 @@ def main():
     edges_parser.set_defaults(_parser=edges_parser)
     edges_parser.add_argument(
         "targets",
-        help="Comma-separated edge names (keys under devices.edges) or 'all'",
+        help=(
+            "Comma-separated edge names (keys under devices.edges), 'all', "
+            "or 'failed' for edges with fewer than 2 control connections"
+        ),
     )
     edges_parser.add_argument(
         "-v",
@@ -228,6 +307,20 @@ def main():
         help="Push edge routing configuration",
     )
 
+    init_parser = subparsers.add_parser(
+        "init",
+        help=(
+            "Copy the bundled base template into the user config directory "
+            f"({user_config_dir()})"
+        ),
+    )
+    init_parser.set_defaults(_parser=init_parser)
+    init_parser.add_argument(
+        "--force",
+        action="store_true",
+        help="Overwrite an existing base.yml",
+    )
+
     generate_parser = subparsers.add_parser(
         "generate",
         help="Generate sdwan_variables YAML from netlab topology files",
@@ -236,9 +329,9 @@ def main():
     generate_parser.add_argument(
         "-b",
         "--base",
-        default=_SCRIPT_DIR / "sdwan_base_variables.yml",
+        default=user_base_path(),
         metavar="FILE",
-        help="Base YAML with static values",
+        help="Base YAML with static values (default: user config base.yml)",
     )
     generate_parser.add_argument(
         "--host-vars",
@@ -249,9 +342,9 @@ def main():
     generate_parser.add_argument(
         "-o",
         "--output",
-        default=_SCRIPT_DIR / "sdwan_variables.gen.yml",
+        default=user_variables_path(),
         metavar="FILE",
-        help="Output YAML file",
+        help="Output YAML file (default: user config variables.yml)",
     )
 
     deploy_parser = subparsers.add_parser(
@@ -262,9 +355,9 @@ def main():
     deploy_parser.add_argument(
         "-b",
         "--base",
-        default=_SCRIPT_DIR / "sdwan_base_variables.yml",
+        default=user_base_path(),
         metavar="FILE",
-        help="Base YAML with static values",
+        help="Base YAML with static values (default: user config base.yml)",
     )
     deploy_parser.add_argument(
         "--host-vars",
@@ -275,9 +368,9 @@ def main():
     deploy_parser.add_argument(
         "-o",
         "--output",
-        default=_SCRIPT_DIR / "sdwan_variables.gen.yml",
+        default=user_variables_path(),
         metavar="FILE",
-        help="Output YAML file (also used as the variables file for automation)",
+        help="Output YAML file, also used as variables file for automation (default: user config variables.yml)",
     )
     deploy_parser.add_argument(
         "-v",
@@ -287,7 +380,11 @@ def main():
     )
 
     all_parser = subparsers.add_parser(
-        "all", help="Run first-boot on all components (manager, validator, controller)"
+        "first-boot",
+        help=(
+            "Run first-boot on Manager, Validator, Controller, and Edges in "
+            "sequence (does not push edge --extra-routing)"
+        ),
     )
     all_parser.add_argument(
         "-v",
@@ -300,7 +397,7 @@ def main():
     show_parser.set_defaults(_parser=show_parser)
     show_parser.add_argument(
         "resource",
-        choices=["devices"],
+        choices=["devices", "licenses"],
         help="Status table to display",
     )
     show_parser.add_argument(
@@ -333,18 +430,49 @@ def main():
         parser.print_help()
         sys.exit(0)
 
+    # `init` does not need SDWAN settings or logging
+    if args.component == "init":
+        dest, created = install_base_template(force=args.force)
+        if created:
+            print(f"Created {dest}")
+            print(
+                "Edit it to set org name, passwords, etc., then run "
+                "'sdwan-automation generate --host-vars <dir>'."
+            )
+        else:
+            print(f"Already exists: {dest} (use --force to overwrite)")
+        return
+
     # Generate does not need SDWAN settings or logging
     if args.component == "generate":
-        _generate_vars(Path(args.base), Path(args.host_vars), Path(args.output))
+        base_path = Path(args.base)
+        if not base_path.exists():
+            print(
+                f"Error: base file not found: {base_path}\n"
+                "Run 'sdwan-automation init' to create one, or pass -b <file>.",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+        _generate_vars(base_path, Path(args.host_vars), Path(args.output))
         return
 
     # Deploy: generate variables from netlab topology, then run first-boot on all components
     if args.component == "deploy":
+        base_path = Path(args.base)
+        if not base_path.exists():
+            print(
+                f"Error: base file not found: {base_path}\n"
+                "Run 'sdwan-automation init' to create one, or pass -b <file>.",
+                file=sys.stderr,
+            )
+            sys.exit(1)
         output_path = Path(args.output)
-        _generate_vars(Path(args.base), Path(args.host_vars), output_path)
+        _generate_vars(base_path, Path(args.host_vars), output_path)
         settings.load(str(output_path))
         setup_logging(args.verbose)
         out = Output(__name__)
+        start_run_stats(_command_line_for_log(), out)
+        out.log_only(f"========== RUN START: {_command_line_for_log()} ==========")
         out.info(f"Variables → {settings._VARIABLES_PATH}")
         _run_all(out)
         return
@@ -353,7 +481,9 @@ def main():
         settings.load(args.variables_file)
     except FileNotFoundError as exc:
         hint = (
-            "\nRun 'generate' or 'deploy' to create one, or use '-f <file>' to specify a path."
+            "\nRun 'sdwan-automation init' (one-time) and then "
+            "'sdwan-automation generate --host-vars <dir>' to create one, "
+            "or use '-f <file>' to specify a path."
             if args.variables_file is None
             else ""
         )
@@ -361,10 +491,15 @@ def main():
         sys.exit(1)
     setup_logging(args.verbose)
     out = Output(__name__)
+    if args.component in {"show", "sdk"}:
+        disable_run_stats()
+    else:
+        start_run_stats(_command_line_for_log(), out)
+    out.log_only(f"========== RUN START: {_command_line_for_log()} ==========")
     out.info(f"Variables → {settings._VARIABLES_PATH}")
 
-    # Handle "all" component - runs first-boot on everything
-    if args.component == "all":
+    # Handle "first-boot" component - runs first-boot on every component
+    if args.component == "first-boot":
         _run_all(out)
         return
 
@@ -393,9 +528,12 @@ def main():
     # If no action flags provided for the component, show help
     if args.component == "show":
         out.banner("Cisco SD-WAN Show Information")
-        if args.resource == "devices":
-            show_controller_status(settings.manager, out=out)
-            show_edge_health_status(settings.manager, out=out)
+        with phase(f"show_{args.resource}"):
+            if args.resource == "devices":
+                show_controller_status(settings.manager, out=out)
+                show_edge_health_status(settings.manager, out=out)
+            elif args.resource == "licenses":
+                show_license_status(settings.manager, out=out)
         return
     if args.component == "edges":
         has_config_file = hasattr(args, "config_file") and args.config_file
@@ -424,6 +562,16 @@ def main():
             if not edge_configs:
                 out.error(f"No edges defined in {settings.DEFAULT_VARIABLES_PATH}")
                 sys.exit(1)
+        elif len(targets) == 1 and targets[0].lower() in {"failed", "nok"}:
+            if args.initial_config or args.config_file or args.extra_routing:
+                out.error(
+                    "The 'failed' target is only valid for certificate repair "
+                    "(use: sdwan-automation edges failed --cert)."
+                )
+                sys.exit(1)
+            edge_configs = _edge_configs_needing_cert_repair(out)
+            if not edge_configs:
+                return
         else:
             edge_configs = []
             for target in targets:
@@ -435,14 +583,15 @@ def main():
                     sys.exit(1)
                 edge_configs.append(config)
 
-        run_edges_automation(
-            edge_configs,
-            initial_config=args.initial_config,
-            config_file=args.config_file,
-            cert=args.cert,
-            extra_routing=args.extra_routing,
-            stagger_seconds=settings.EDGE_STAGGER_SECONDS,
-        )
+        with phase("edges"):
+            run_edges_automation(
+                edge_configs,
+                initial_config=args.initial_config,
+                config_file=args.config_file,
+                cert=args.cert,
+                extra_routing=args.extra_routing,
+                stagger_seconds=settings.EDGE_STAGGER_SECONDS,
+            )
         out.header("Edges Complete")
         out.success("Edge automation finished")
         return
@@ -450,7 +599,8 @@ def main():
         if not args.sdk_args:
             out.warning("No SDK arguments provided. Example: sdk show device")
             return
-        result = run_sdwan_cli(settings, args.sdk_args)
+        with phase("sdk"):
+            result = run_sdwan_cli(settings, args.sdk_args)
         if result != 0:
             raise SystemExit(result)
         return
@@ -464,38 +614,43 @@ def main():
     if args.first_boot:
         args.initial_config = True
         args.cert = True
+        increment_run_stat("first_boot_runs")
 
     out.banner("Cisco SD-WAN Automation Script")
 
     if args.component == "manager":
-        run_manager_automation(
-            settings.manager,
-            initial_config=args.initial_config,
-            cert=args.cert,
-            config_file=args.config_file,
-        )
+        with phase("manager"):
+            run_manager_automation(
+                settings.manager,
+                initial_config=args.initial_config,
+                cert=args.cert,
+                config_file=args.config_file,
+            )
         out.header("Manager Complete")
         out.success("Manager automation finished")
     elif args.component == "validator":
-        run_validator_automation(
-            settings.validator,
-            initial_config=args.initial_config,
-            cert=args.cert,
-            config_file=args.config_file,
-        )
+        with phase("validator"):
+            run_validator_automation(
+                settings.validator,
+                initial_config=args.initial_config,
+                cert=args.cert,
+                config_file=args.config_file,
+            )
         out.header("Validator Complete")
         out.success("Validator automation finished")
     elif args.component == "controller":
-        run_controller_automation(
-            settings.controller,
-            initial_config=args.initial_config,
-            cert=args.cert,
-            config_file=args.config_file,
-        )
+        with phase("controller"):
+            run_controller_automation(
+                settings.controller,
+                initial_config=args.initial_config,
+                cert=args.cert,
+                config_file=args.config_file,
+            )
         out.header("Controller Complete")
         out.success("Controller automation finished")
 
-    show_controller_status(settings.manager, out=out)
+    with phase("controller_status"):
+        show_controller_status(settings.manager, out=out)
 
 
 if __name__ == "__main__":

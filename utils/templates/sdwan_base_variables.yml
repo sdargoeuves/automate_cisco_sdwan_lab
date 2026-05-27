@@ -45,12 +45,46 @@ timing:
   wait_before_automating_controller_seconds: 120
   manager_api_ready_timeout_seconds: 900        # how long to wait for the manager API after first boot
 
+  # Out-of-sync controller reboot — when vBond/vSmart come up out-of-sync we reboot them.
+  # The reboot must finish (and the controller re-sync) before edges are configured;
+  # otherwise edges race against a controller restart and BFD never comes up.
+  controller_post_reboot_poll_interval_seconds: 30
+  controller_post_reboot_timeout_seconds: 600
+
   # Edge automation
-  edge_stagger_seconds: 2          # delay between launching each edge in parallel (seconds)
+  edge_stagger_seconds: 10          # delay between launching each edge in parallel (seconds)
   wait_before_activating_edge_seconds: 60
   wait_after_generating_payg_license_seconds: 30
   edge_cert_poll_interval_seconds: 10
-  edge_cert_poll_timeout_seconds: 240
+  edge_cert_poll_timeout_seconds: 240            # root CA chain install syslog gate
+
+  # PAYG activation retry — BYOL/PAYG mismatch on Manager can need several retries
+  edge_payg_activate_max_attempts: 4
+  edge_payg_activate_retry_wait_seconds: 60
+
+  # Edge activations are serialized across worker threads (one edge at a time runs
+  # `vedge_cloud activate`), then this gap is observed before the next edge
+  # activates — gives vManage time to start processing the CSR so concurrent
+  # CSRs don't race on its side. Everything else stays parallel.
+  edge_activation_gap_seconds: 30
+
+  # Post-activation device certificate validity check
+  # (`show sdwan certificate validity` returns valid once vManage has signed and pushed
+  # the device cert back to the edge over the control connection)
+  # vManage signing typically takes 5–10 min, so the per-attempt timeout is generous
+  # to avoid sending `clear sdwan control connections` while signing is in progress.
+  # If the first attempt does time out, attempt 2 sends one `clear` to nudge a
+  # genuinely-stuck handshake before giving up.
+  edge_cert_validity_poll_interval_seconds: 15
+  edge_cert_validity_timeout_seconds: 600
+  edge_cert_validity_max_attempts: 2
+
+  # Final fabric convergence gate. After edge workers finish, automation polls
+  # vManage until every targeted edge has at least one BFD session up; edges
+  # still at BFD=0 are retried with a fresh cert flow up to this limit.
+  edge_bfd_convergence_poll_interval_seconds: 30
+  edge_bfd_convergence_timeout_seconds: 300
+  edge_bfd_convergence_max_attempts: 3
 
   # CSR operations
   wait_csr_generation_seconds: 30      # fixed wait on validator/controller after CSR is requested

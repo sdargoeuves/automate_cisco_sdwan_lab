@@ -2,7 +2,8 @@ import gzip
 import logging
 import os
 from logging.handlers import RotatingFileHandler
-from pathlib import Path
+
+from utils.config_paths import user_config_dir
 
 
 def setup_logging(verbose: bool) -> None:
@@ -13,8 +14,8 @@ def setup_logging(verbose: bool) -> None:
     if root_logger.handlers:
         return
 
-    logs_dir = Path(__file__).resolve().parents[1] / "logs"
-    logs_dir.mkdir(exist_ok=True)
+    logs_dir = user_config_dir() / "logs"
+    logs_dir.mkdir(parents=True, exist_ok=True)
     info_log_file = logs_dir / "sdwan_automation.log"
     debug_log_file = logs_dir / "sdwan_automation.debug.log"
 
