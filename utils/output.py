@@ -224,7 +224,9 @@ class Output:
         """Print a prominent banner (used for script start/end)."""
         if self._effective_prefix:
             with _PRINT_LOCK:
-                print(f"{self._console_prefix}{SYMBOLS['rocket']} {title} {SYMBOLS['rocket']}")
+                print(
+                    f"{self._console_prefix}{SYMBOLS['rocket']} {title} {SYMBOLS['rocket']}"
+                )
         else:
             with _PRINT_LOCK:
                 print("=" * HEADER_WIDTH)

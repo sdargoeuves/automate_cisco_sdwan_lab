@@ -9,9 +9,9 @@ import re
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import Optional
 
 from utils import sdwan_config as settings
+from utils.manager_api_status import get_edge_health_items
 from utils.netmiko import (
     bootstrap_initial_config,
     connect_to_device,
@@ -20,7 +20,6 @@ from utils.netmiko import (
     push_config_from_file,
     scp_copy_file,
 )
-from utils.manager_api_status import get_edge_health_items
 from utils.output import Output, thread_label
 from utils.run_stats import increment as increment_run_stat
 from utils.run_stats import phase
@@ -45,7 +44,7 @@ def _record_latest_edge_chassis(edge_name: str, chassis_id: str) -> None:
         _LAST_REPORTED_CERT_STATE_BY_EDGE.pop(edge_name, None)
 
 
-def _get_latest_edge_chassis(edge_name: str) -> Optional[str]:
+def _get_latest_edge_chassis(edge_name: str) -> str | None:
     with _LATEST_CHASSIS_LOCK:
         return _LATEST_CHASSIS_BY_EDGE.get(edge_name)
 
@@ -288,7 +287,7 @@ _CERT_STATES_WHERE_CLEAR_MAY_HELP = {"certinstalled", "certinstallfailed"}
 _CERT_STATES_WHERE_EARLY_RETRY_MAY_HELP = {"certinstallfailed"}
 
 
-def _get_chassis_cert_state(manager_config, chassis_id: str) -> Optional[str]:
+def _get_chassis_cert_state(manager_config, chassis_id: str) -> str | None:
     """Query vManage's per-chassis ``vedgeCertificateState`` from
     ``/dataservice/system/device/vedges``. Returns the state string (e.g.
     ``"certinstalled"``, ``"certinstallfailed"``, ``"CSR Generated"``) or
@@ -432,7 +431,7 @@ def _activate_edge_license(
     return False
 
 
-def _get_edge_extra_routing_config(edge_name: Optional[str]) -> Optional[str]:
+def _get_edge_extra_routing_config(edge_name: str | None) -> str | None:
     if not edge_name:
         return None
     return settings.EDGE_EXTRA_ROUTING_CONFIGS.get(edge_name)
@@ -441,11 +440,11 @@ def _get_edge_extra_routing_config(edge_name: Optional[str]) -> Optional[str]:
 def run_edge_automation(
     config: settings.EdgeConfig,
     initial_config: bool = False,
-    config_file: Optional[str] = None,
+    config_file: str | None = None,
     cert: bool = False,
     extra_routing: bool = False,
     device_type: str = "cisco_ios",
-    edge_name: Optional[str] = None,
+    edge_name: str | None = None,
     defer_cert_result: bool = False,
 ) -> None:
     label = edge_name or "edge"
@@ -467,7 +466,7 @@ def run_edge_automation(
 def _run_edge_automation_body(
     config: settings.EdgeConfig,
     initial_config: bool,
-    config_file: Optional[str],
+    config_file: str | None,
     cert: bool,
     extra_routing: bool,
     device_type: str,
@@ -639,9 +638,7 @@ def _run_edge_automation_body(
                 settings.EDGE_CERT_VALIDITY_MAX_ATTEMPTS,
                 device_type,
             ):
-                out.error(
-                    "Edge did not join the fabric after PAYG activation."
-                )
+                out.error("Edge did not join the fabric after PAYG activation.")
                 net_connect.disconnect()
                 raise SystemExit(1)
 
@@ -653,7 +650,7 @@ def _run_edges_worker_phase(
     edge_configs: list[settings.EdgeConfig],
     edge_name_by_id: dict[int, str],
     initial_config: bool,
-    config_file: Optional[str],
+    config_file: str | None,
     cert: bool,
     extra_routing: bool,
     stagger_seconds: float,
@@ -661,33 +658,35 @@ def _run_edges_worker_phase(
 ) -> list[str]:
     increment_run_stat("edge_worker_phases")
     failed = []
-    with phase("edge_worker_phase"):
-        with ThreadPoolExecutor(max_workers=len(edge_configs)) as pool:
-            futures = {}
-            for i, edge_config in enumerate(edge_configs):
-                if i > 0:
-                    time.sleep(stagger_seconds)
-                edge_name = edge_name_by_id.get(id(edge_config), "edge")
-                out.step(f"[{edge_name}] Starting...")
-                futures[
-                    pool.submit(
-                        run_edge_automation,
-                        edge_config,
-                        initial_config=initial_config,
-                        config_file=config_file,
-                        cert=cert,
-                        extra_routing=extra_routing,
-                        edge_name=edge_name,
-                        defer_cert_result=defer_cert_result,
-                    )
-                ] = edge_name
-            for future in as_completed(futures):
-                name = futures[future]
-                try:
-                    future.result()
-                except (SystemExit, Exception) as exc:
-                    failed.append(name)
-                    out.error(f"[{name}] failed: {exc}")
+    with (
+        phase("edge_worker_phase"),
+        ThreadPoolExecutor(max_workers=len(edge_configs)) as pool,
+    ):
+        futures = {}
+        for i, edge_config in enumerate(edge_configs):
+            if i > 0:
+                time.sleep(stagger_seconds)
+            edge_name = edge_name_by_id.get(id(edge_config), "edge")
+            out.step(f"[{edge_name}] Starting...")
+            futures[
+                pool.submit(
+                    run_edge_automation,
+                    edge_config,
+                    initial_config=initial_config,
+                    config_file=config_file,
+                    cert=cert,
+                    extra_routing=extra_routing,
+                    edge_name=edge_name,
+                    defer_cert_result=defer_cert_result,
+                )
+            ] = edge_name
+        for future in as_completed(futures):
+            name = futures[future]
+            try:
+                future.result()
+            except (SystemExit, Exception) as exc:
+                failed.append(name)
+                out.error(f"[{name}] failed: {exc}")
     return failed
 
 
@@ -837,7 +836,7 @@ def _wait_for_edges_bfd_converged(
 def run_edges_automation(
     edge_configs: list[settings.EdgeConfig],
     initial_config: bool = False,
-    config_file: Optional[str] = None,
+    config_file: str | None = None,
     cert: bool = False,
     extra_routing: bool = False,
     stagger_seconds: float = 2.0,
@@ -859,9 +858,7 @@ def run_edges_automation(
     phase_initial_config = initial_config
     phase_config_file = config_file
     phase_extra_routing = extra_routing
-    edge_attempts = {
-        edge_name_by_id.get(id(cfg), "edge"): 0 for cfg in edge_configs
-    }
+    edge_attempts = {edge_name_by_id.get(id(cfg), "edge"): 0 for cfg in edge_configs}
     round_number = 0
 
     while phase_edge_configs:
@@ -903,7 +900,8 @@ def run_edges_automation(
 
         if failed:
             out.warning(
-                "Edge worker phase failed for: " + ", ".join(sorted(failed))
+                "Edge worker phase failed for: "
+                + ", ".join(sorted(failed))
                 + "; checking final fabric state before deciding retry targets."
             )
 
@@ -942,13 +940,14 @@ def run_edges_automation(
         if exhausted_retry_names:
             out.error(
                 "Edge fabric convergence failed after per-edge retry budget "
-                "was exhausted for: "
-                + ", ".join(sorted(exhausted_retry_names))
+                "was exhausted for: " + ", ".join(sorted(exhausted_retry_names))
             )
             raise SystemExit(1)
 
         phase_edge_configs = [
-            edge_config_by_name[name] for name in retry_names if name in edge_config_by_name
+            edge_config_by_name[name]
+            for name in retry_names
+            if name in edge_config_by_name
         ]
         if not phase_edge_configs:
             out.error("Unable to map retry target names back to edge configs.")

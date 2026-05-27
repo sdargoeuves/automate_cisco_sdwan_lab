@@ -20,7 +20,7 @@ import ipaddress
 import json
 import re
 import sys
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 import yaml
@@ -211,9 +211,15 @@ def run(base_path: Path, host_vars_path: Path, output_path: Path) -> None:
     topo_files = sorted(host_vars_path.glob("*/topology.json"))
     if not topo_files:
         if not host_vars_path.is_dir():
-            print(f"ERROR: host_vars directory not found: {host_vars_path}", file=sys.stderr)
+            print(
+                f"ERROR: host_vars directory not found: {host_vars_path}",
+                file=sys.stderr,
+            )
         else:
-            print(f"ERROR: no topology.json files found under {host_vars_path}", file=sys.stderr)
+            print(
+                f"ERROR: no topology.json files found under {host_vars_path}",
+                file=sys.stderr,
+            )
         sys.exit(1)
 
     for topo_file in topo_files:
@@ -286,7 +292,10 @@ def run(base_path: Path, host_vars_path: Path, output_path: Path) -> None:
     stale = [n for n in list(edges.keys()) if n not in discovered_edges]
     for name in stale:
         del edges[name]
-        print(f"  [pruned] '{name}' from base file — not found in topology", file=sys.stderr)
+        print(
+            f"  [pruned] '{name}' from base file — not found in topology",
+            file=sys.stderr,
+        )
 
     # Auto-assign site_id to any discovered edge that doesn't have one
     for idx, edge_name in enumerate(sorted(discovered_edges), start=1):
@@ -296,7 +305,7 @@ def run(base_path: Path, host_vars_path: Path, output_path: Path) -> None:
 
     # Write output ────────────────────────────────────────────────────────────
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    generated_at = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+    generated_at = datetime.now(UTC).strftime("%Y-%m-%d %H:%M UTC")
     banner = (
         "# " + "─" * 77 + "\n"
         "# AUTO-GENERATED FILE — DO NOT EDIT MANUALLY\n"

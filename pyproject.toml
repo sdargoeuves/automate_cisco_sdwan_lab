@@ -14,6 +14,15 @@ dependencies = [
     "PyYAML>=6.0",
 ]
 
+[project.optional-dependencies]
+test = [
+    "pytest>=8.0",
+]
+dev = [
+    "pytest>=8.0",
+    "ruff>=0.11",
+]
+
 [project.scripts]
 sdwan-automation = "sdwan_automation:main"
 
@@ -23,3 +32,25 @@ packages = ["components", "utils", "utils.templates"]
 
 [tool.setuptools.package-data]
 "utils.templates" = ["*.yml"]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 88
+
+[tool.ruff.lint]
+select = [
+    "E",   # pycodestyle errors
+    "F",   # pyflakes
+    "I",   # isort/import sorting
+    "UP",  # pyupgrade
+    "B",   # flake8-bugbear
+    "SIM", # flake8-simplify
+]
+ignore = [
+    "E501", # line length handled by formatter; avoid noisy string/comment failures
+]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+line-ending = "auto"

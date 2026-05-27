@@ -268,6 +268,15 @@ sdwan-automation sdk backup all --workdir backups
 
 Add `-v` to most subcommands for verbose output.
 
+## Tests
+
+Install the optional test dependency and run pytest:
+
+```bash
+pip install -e ".[test]"
+pytest
+```
+
 ## Logs
 
 Written under the user config directory (`$XDG_CONFIG_HOME/sdwan-automation/logs/`

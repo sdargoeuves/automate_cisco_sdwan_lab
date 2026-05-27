@@ -1,5 +1,3 @@
-from typing import Optional
-
 from utils import sdwan_config as settings
 from utils.netmiko import (
     bootstrap_initial_config,
@@ -20,7 +18,7 @@ def run_validator_automation(
     config: settings.ValidatorConfig,
     initial_config: bool = False,
     cert: bool = False,
-    config_file: Optional[str] = None,
+    config_file: str | None = None,
 ):
     """
     Orchestrate Validator/vBond actions.

@@ -65,9 +65,9 @@ from utils.manager_api_status import (
 from utils.output import Output
 from utils.run_stats import disable as disable_run_stats
 from utils.run_stats import increment as increment_run_stat
-from utils.run_stats import phase, start as start_run_stats
+from utils.run_stats import phase
+from utils.run_stats import start as start_run_stats
 from utils.sdwan_sdk import run_sdwan_cli
-
 
 PACKAGE_NAME = "sdwan-automation"
 PACKAGE_DEPENDENCIES = [
