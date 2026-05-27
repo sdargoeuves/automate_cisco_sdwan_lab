@@ -251,6 +251,12 @@ sdwan-automation show devices
 sdwan-automation show licenses
 ```
 
+### Version
+
+```bash
+sdwan-automation version
+```
+
 ### SDK passthrough
 
 Run any [Sastre](https://github.com/CiscoDevNet/sastre) SDK CLI command without retyping credentials:
@@ -261,6 +267,15 @@ sdwan-automation sdk backup all --workdir backups
 ```
 
 Add `-v` to most subcommands for verbose output.
+
+## Tests
+
+Install the optional test dependency and run pytest:
+
+```bash
+pip install -e ".[test]"
+pytest
+```
 
 ## Logs
 

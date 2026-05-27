@@ -1,8 +1,9 @@
 import shutil
 import subprocess
 import time
+from collections.abc import Mapping
 from threading import Lock
-from typing import Any, Mapping
+from typing import Any
 
 import requests
 from cisco_sdwan.base.rest_api import Rest, RestAPIException

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "sdwan-automation"
-version = "1.0.1"
+version = "2.0.0"
 description = "Cisco SD-WAN Certificate Automation"
 requires-python = ">=3.11"
 dependencies = [
@@ -12,6 +12,15 @@ dependencies = [
     "requests>=2.32.5",
     "cisco-sdwan>=1.0.0",
     "PyYAML>=6.0",
+]
+
+[project.optional-dependencies]
+test = [
+    "pytest>=8.0",
+]
+dev = [
+    "pytest>=8.0",
+    "ruff>=0.11",
 ]
 
 [project.scripts]
@@ -23,3 +32,25 @@ packages = ["components", "utils", "utils.templates"]
 
 [tool.setuptools.package-data]
 "utils.templates" = ["*.yml"]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 88
+
+[tool.ruff.lint]
+select = [
+    "E",   # pycodestyle errors
+    "F",   # pyflakes
+    "I",   # isort/import sorting
+    "UP",  # pyupgrade
+    "B",   # flake8-bugbear
+    "SIM", # flake8-simplify
+]
+ignore = [
+    "E501", # line length handled by formatter; avoid noisy string/comment failures
+]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+line-ending = "auto"

@@ -491,9 +491,7 @@ def load(variables_path=None) -> None:
     EDGE_PAYG_ACTIVATE_RETRY_WAIT_SECONDS = int(
         _timing.get("edge_payg_activate_retry_wait_seconds", 60)
     )
-    EDGE_ACTIVATION_GAP_SECONDS = int(
-        _timing.get("edge_activation_gap_seconds", 30)
-    )
+    EDGE_ACTIVATION_GAP_SECONDS = int(_timing.get("edge_activation_gap_seconds", 30))
     EDGE_CERT_VALIDITY_POLL_INTERVAL_SECONDS = int(
         _timing.get("edge_cert_validity_poll_interval_seconds", 15)
     )

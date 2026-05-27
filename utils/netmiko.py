@@ -1,5 +1,6 @@
 import sys
 import time
+from contextlib import suppress
 from pathlib import Path
 
 from netmiko import ConnectHandler, ReadTimeout
@@ -117,7 +118,7 @@ def push_cli_config(
         config_commands,
         config_mode_command=config_mode_command,
         read_timeout=read_timeout,
-        exit_config_mode=False if commit_command else True,
+        exit_config_mode=not commit_command,
     )
 
     out.step("Committing configuration...")
@@ -243,10 +244,8 @@ def ensure_connection(net_connect, device_type, host, username, password):
                 return net_connect
         except Exception as exc:
             out.log_only(f"Connection health check failed for {host}: {exc}")
-        try:
+        with suppress(Exception):
             net_connect.disconnect()
-        except Exception:
-            pass
         out.warning(f"Connection to {host} is closed; reconnecting...")
     return connect_to_device(device_type, host, username, password)
 
@@ -578,7 +577,5 @@ def reboot_device(
         out.warning(f"Failed to reboot {host}: {exc}")
         return False
     finally:
-        try:
+        with suppress(Exception):
             net_connect.disconnect()
-        except Exception:
-            pass

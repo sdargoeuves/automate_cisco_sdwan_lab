@@ -1,5 +1,3 @@
-from typing import Optional
-
 from utils import sdwan_config as settings
 from utils.netmiko import (
     bootstrap_initial_config,
@@ -20,7 +18,7 @@ def run_controller_automation(
     config: settings.ControllerConfig,
     initial_config: bool = False,
     cert: bool = False,
-    config_file: Optional[str] = None,
+    config_file: str | None = None,
 ):
     """
     Orchestrate Controller/vSmart actions.
