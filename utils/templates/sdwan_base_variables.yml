@@ -19,6 +19,7 @@ shared:
   default_password: admin     # initial/default password for all components after initial boot (same for manager, controller, validator and edges)
   updated_password: admin@123 # new password which will be configured on all components (same for manager, controller, validator and edges)
   port: "443"                 # port for manager APIs
+  edge_device_type: cisco_viptela # Netmiko driver for cEdges (controller mode uses config-transaction); set cisco_xe/cisco_ios only if a device rejects it
 
 devices:
   component_site_id: 255   # shared site_id for manager, controller, and validator
@@ -86,6 +87,13 @@ timing:
   edge_bfd_convergence_timeout_seconds: 300
   edge_bfd_convergence_max_attempts: 3
 
+  # Edge config-readiness gate. A freshly-booted vEdge answers SSH/login before
+  # confd is ready to accept `config-transaction`. Before pushing initial edge
+  # config, automation probes config mode every poll interval until it succeeds
+  # or the timeout elapses, then pushes with normal timing.
+  edge_config_ready_poll_interval_seconds: 20
+  edge_config_ready_timeout_seconds: 600
+
   # CSR operations
   wait_csr_generation_seconds: 30      # fixed wait on validator/controller after CSR is requested
   csr_generation_max_attempts: 3       # manager: max retries for the CSR generation API call
@@ -100,8 +108,6 @@ timing:
 
   # Netmiko — config push
   netmiko_increased_read_timeout_seconds: 60
-  netmiko_config_retry_attempts: 2
-  netmiko_config_retry_wait_seconds: 20
 
   # Netmiko — commit
   netmiko_commit_read_timeout_seconds: 120

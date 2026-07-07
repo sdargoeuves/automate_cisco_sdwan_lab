@@ -186,7 +186,7 @@ def _capture_edge_cert_diagnostics(
     )
     commands = [
         "show sdwan control connections",
-        "show sdwan control connections-history",
+        "show sdwan control connection-history",
         "show sdwan certificate installed",
         "show sdwan certificate validity",
         (
@@ -443,7 +443,7 @@ def run_edge_automation(
     config_file: str | None = None,
     cert: bool = False,
     extra_routing: bool = False,
-    device_type: str = "cisco_ios",
+    device_type: str = "cisco_viptela",
     edge_name: str | None = None,
     defer_cert_result: bool = False,
 ) -> None:
@@ -495,6 +495,8 @@ def _run_edge_automation_body(
             config_mode_command="config-transaction",
             commit_command="commit",
             read_timeout=settings.NETMIKO_INCREASED_READ_TIMEOUT_SECONDS,
+            config_ready_timeout=settings.EDGE_CONFIG_READY_TIMEOUT_SECONDS,
+            config_ready_poll_interval=settings.EDGE_CONFIG_READY_POLL_INTERVAL_SECONDS,
         )
     else:
         # Try configured password first, then default if it fails
@@ -676,6 +678,7 @@ def _run_edges_worker_phase(
                     config_file=config_file,
                     cert=cert,
                     extra_routing=extra_routing,
+                    device_type=settings.EDGE_DEVICE_TYPE,
                     edge_name=edge_name,
                     defer_cert_result=defer_cert_result,
                 )

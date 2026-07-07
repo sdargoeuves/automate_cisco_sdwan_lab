@@ -19,6 +19,7 @@ shared:
   default_password: admin
   updated_password: admin@123
   port: '443'
+  edge_device_type: cisco_viptela
 devices:
   edges:
     edge1x01:
@@ -150,6 +151,8 @@ timing:
   edge_bfd_convergence_poll_interval_seconds: 30
   edge_bfd_convergence_timeout_seconds: 300
   edge_bfd_convergence_max_attempts: 3
+  edge_config_ready_poll_interval_seconds: 20
+  edge_config_ready_timeout_seconds: 600
   wait_csr_generation_seconds: 30
   csr_generation_max_attempts: 3
   csr_generation_retry_wait_seconds: 5
@@ -159,8 +162,6 @@ timing:
   netmiko_connect_retry_max_seconds: 900
   netmiko_connect_lockout_retry_interval_seconds: 180
   netmiko_increased_read_timeout_seconds: 60
-  netmiko_config_retry_attempts: 2
-  netmiko_config_retry_wait_seconds: 20
   netmiko_commit_read_timeout_seconds: 120
   netmiko_commit_retry_attempts: 2
   netmiko_commit_retry_wait_seconds: 30

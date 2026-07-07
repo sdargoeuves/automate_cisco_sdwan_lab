@@ -49,6 +49,7 @@ USERNAME: str = None
 DEFAULT_PASSWORD: str = None
 UPDATED_PASSWORD: str = None
 PORT: str = None
+EDGE_DEVICE_TYPE: str = None
 WAIT_BEFORE_AUTOMATING_CONTROLLER_SECONDS: int = None
 WAIT_BEFORE_AUTOMATING_VALIDATOR_SECONDS: int = None
 CONTROLLER_POST_REBOOT_POLL_INTERVAL_SECONDS: int = None
@@ -67,10 +68,10 @@ EDGE_CERT_VALIDITY_MAX_ATTEMPTS: int = None
 EDGE_BFD_CONVERGENCE_POLL_INTERVAL_SECONDS: int = None
 EDGE_BFD_CONVERGENCE_TIMEOUT_SECONDS: int = None
 EDGE_BFD_CONVERGENCE_MAX_ATTEMPTS: int = None
+EDGE_CONFIG_READY_POLL_INTERVAL_SECONDS: int = None
+EDGE_CONFIG_READY_TIMEOUT_SECONDS: int = None
 NETMIKO_INCREASED_READ_TIMEOUT_SECONDS: int = None
 CSR_FILE_TIMEOUT_SECONDS: int = None
-NETMIKO_CONFIG_RETRY_ATTEMPTS: int = None
-NETMIKO_CONFIG_RETRY_WAIT_SECONDS: int = None
 NETMIKO_COMMIT_READ_TIMEOUT_SECONDS: int = None
 NETMIKO_COMMIT_RETRY_ATTEMPTS: int = None
 NETMIKO_COMMIT_RETRY_WAIT_SECONDS: int = None
@@ -415,7 +416,7 @@ def load(variables_path=None) -> None:
             ``sdwan_variables.gen.yml`` next to the project root.
     """
     global _VARIABLES_PATH, _DEVICES
-    global ORG, USERNAME, DEFAULT_PASSWORD, UPDATED_PASSWORD, PORT
+    global ORG, USERNAME, DEFAULT_PASSWORD, UPDATED_PASSWORD, PORT, EDGE_DEVICE_TYPE
     global \
         WAIT_BEFORE_AUTOMATING_CONTROLLER_SECONDS, \
         WAIT_BEFORE_AUTOMATING_VALIDATOR_SECONDS
@@ -431,8 +432,8 @@ def load(variables_path=None) -> None:
     global EDGE_CERT_VALIDITY_MAX_ATTEMPTS
     global EDGE_BFD_CONVERGENCE_POLL_INTERVAL_SECONDS
     global EDGE_BFD_CONVERGENCE_TIMEOUT_SECONDS, EDGE_BFD_CONVERGENCE_MAX_ATTEMPTS
-    global CSR_FILE_TIMEOUT_SECONDS, NETMIKO_CONFIG_RETRY_ATTEMPTS
-    global NETMIKO_CONFIG_RETRY_WAIT_SECONDS, NETMIKO_COMMIT_READ_TIMEOUT_SECONDS
+    global EDGE_CONFIG_READY_POLL_INTERVAL_SECONDS, EDGE_CONFIG_READY_TIMEOUT_SECONDS
+    global CSR_FILE_TIMEOUT_SECONDS, NETMIKO_COMMIT_READ_TIMEOUT_SECONDS
     global NETMIKO_COMMIT_RETRY_ATTEMPTS, NETMIKO_COMMIT_RETRY_WAIT_SECONDS
     global NETMIKO_CONNECT_RETRY_WAIT_SECONDS, NETMIKO_CONNECT_RETRY_MAX_SECONDS
     global NETMIKO_CONNECT_LOCKOUT_RETRY_INTERVAL_SECONDS
@@ -460,6 +461,10 @@ def load(variables_path=None) -> None:
     DEFAULT_PASSWORD = _shared.get("default_password", "admin")
     UPDATED_PASSWORD = _shared.get("updated_password", "admin@123")
     PORT = str(_shared.get("port", "443"))
+    # cEdges run the Viptela config model (config-transaction / commit) in
+    # SD-WAN controller mode, so they use the same Netmiko driver as the other
+    # SD-WAN components. Overridable in case a device needs cisco_xe/cisco_ios.
+    EDGE_DEVICE_TYPE = str(_shared.get("edge_device_type", "cisco_viptela"))
     WAIT_BEFORE_AUTOMATING_CONTROLLER_SECONDS = int(
         _timing.get("wait_before_automating_controller_seconds", 120)
     )
@@ -510,14 +515,16 @@ def load(variables_path=None) -> None:
     EDGE_BFD_CONVERGENCE_MAX_ATTEMPTS = int(
         _timing.get("edge_bfd_convergence_max_attempts", 3)
     )
+    EDGE_CONFIG_READY_POLL_INTERVAL_SECONDS = int(
+        _timing.get("edge_config_ready_poll_interval_seconds", 20)
+    )
+    EDGE_CONFIG_READY_TIMEOUT_SECONDS = int(
+        _timing.get("edge_config_ready_timeout_seconds", 600)
+    )
     NETMIKO_INCREASED_READ_TIMEOUT_SECONDS = int(
         _timing.get("netmiko_increased_read_timeout_seconds", 30)
     )
     CSR_FILE_TIMEOUT_SECONDS = int(_timing.get("csr_file_timeout_seconds", 60))
-    NETMIKO_CONFIG_RETRY_ATTEMPTS = int(_timing.get("netmiko_config_retry_attempts", 2))
-    NETMIKO_CONFIG_RETRY_WAIT_SECONDS = int(
-        _timing.get("netmiko_config_retry_wait_seconds", 10)
-    )
     NETMIKO_COMMIT_READ_TIMEOUT_SECONDS = int(
         _timing.get("netmiko_commit_read_timeout_seconds", 120)
     )
