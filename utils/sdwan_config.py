@@ -482,7 +482,7 @@ def load(variables_path=None) -> None:
         _timing.get("wait_before_activating_edge_seconds", 60)
     )
     WAIT_AFTER_GENERATING_PAYG_LICENSE_SECONDS = int(
-        _timing.get("wait_after_generating_payg_license_seconds", 30)
+        _timing.get("wait_after_generating_payg_license_seconds", 90)
     )
     EDGE_CERT_POLL_INTERVAL_SECONDS = int(
         _timing.get("edge_cert_poll_interval_seconds", 10)

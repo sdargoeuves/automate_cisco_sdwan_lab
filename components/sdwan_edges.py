@@ -307,6 +307,66 @@ def _get_chassis_cert_state(manager_config, chassis_id: str) -> str | None:
     return None
 
 
+# Fields on a `/dataservice/system/device/vedges` entry that indicate whether a
+# freshly generated PAYG chassis has been recorded, authorized, and pushed to
+# the controllers by vManage. A vBond `SERNTPRES` ("Serial Number not present")
+# teardown means the edge tried to connect before its serial reached vBond's
+# authorized list — so we snapshot vManage's view right at activation time to
+# measure that propagation lag against the cert-install outcome.
+_CHASSIS_SNAPSHOT_KEYS = (
+    "chasisNumber",
+    "serialNumber",
+    "validity",
+    "state",
+    "vedgeCertificateState",
+    "vbondSyncStatus",
+    "configuredSystemIP",
+    "managementSystemIP",
+    "expirationDate",
+    "uuid",
+)
+
+
+def _log_chassis_authorization_snapshot(
+    manager_config, chassis_id: str, label: str
+) -> None:
+    """Diagnostic: log what vManage knows about ``chassis_id`` at ``label``.
+
+    Used to confirm/refute the theory that ``certinstallfailed`` is driven by
+    the chassis serial not having propagated to the controllers (vBond
+    ``SERNTPRES``) by activation time. A curated summary goes to the main log
+    and the full record to the debug log (so any sync field we did not
+    anticipate is still captured). Never raises.
+    """
+    try:
+        response = sdk_call_json(
+            manager_config, "GET", "/dataservice/system/device/vedges"
+        )
+    except SdkCallError as exc:
+        out.log_only(
+            f"Chassis snapshot ({label}) query failed for {chassis_id}: {exc}",
+            level="warning",
+        )
+        return
+    devices = (response.get("data") or []) if response else []
+    entry = next(
+        (d for d in devices if d.get("chasisNumber") == chassis_id), None
+    )
+    if entry is None:
+        out.log_only(
+            f"Chassis snapshot ({label}): {chassis_id} NOT PRESENT in vManage "
+            f"inventory ({len(devices)} vedges total) — serial has not "
+            "propagated yet.",
+            level="warning",
+        )
+        return
+    summary = {k: entry.get(k) for k in _CHASSIS_SNAPSHOT_KEYS if k in entry}
+    out.log_only(f"Chassis snapshot ({label}) for {chassis_id}: {summary}")
+    out.log_only(
+        f"Chassis snapshot ({label}) full record: {entry}", level="debug"
+    )
+
+
 def _try_install_device_cert(
     net_connect,
     manager_config,
@@ -616,6 +676,9 @@ def _run_edge_automation_body(
         # `certinstallfailed`. The gap after the activate command gives vManage
         # time to start processing this CSR before the next edge submits.
         with _ACTIVATION_LOCK:
+            _log_chassis_authorization_snapshot(
+                settings.manager, license_entry["chassis"], "pre-activate"
+            )
             if not _activate_edge_license(net_connect, license_entry):
                 net_connect.disconnect()
                 raise SystemExit(1)
@@ -623,6 +686,9 @@ def _run_edge_automation_body(
                 "Holding lock to let vManage pick up this CSR before the next edge "
                 f"activates ({settings.EDGE_ACTIVATION_GAP_SECONDS}s)...",
                 settings.EDGE_ACTIVATION_GAP_SECONDS,
+            )
+            _log_chassis_authorization_snapshot(
+                settings.manager, license_entry["chassis"], "post-activate-gap"
             )
         if defer_cert_result:
             out.info(
