@@ -42,6 +42,11 @@ RE_SNAP_ABSENT = re.compile(
 RE_ACTIVATE = re.compile(rf"Activating PAYG license for chassis {CHASSIS} \(attempt")
 RE_STATE_MULTI = re.compile(rf"vManage cert state for latest chassis {CHASSIS}: '(\w+)'")
 RE_STATE_SINGLE = re.compile(r"vManage chassis cert state: '(\w+)'")
+# Control-conn trace, emitted either as "[edge] control connections up: N"
+# (single-edge path, thread-labelled) or "edge: control connections up: N"
+# (multi-edge gate). Value is an int or "None" (edge absent from health).
+RE_CONNS = re.compile(r"control connections up: (\d+|None)")
+RE_CONNS_LEADING = re.compile(r"^([\w-]+): control connections up:")
 RE_JOINED = re.compile(r"Edge has joined the SD-WAN fabric\.")
 RE_EDGE_BRACKET = re.compile(r"^\[([\w-]+)\] ")
 RE_EDGE_LEADING = re.compile(r"^([\w-]+) vManage cert state")
@@ -52,7 +57,9 @@ FAIL_STATES = {"certinstallfailed"}
 
 
 class Chassis:
-    __slots__ = ("cid", "edge", "activate_ts", "pre", "post", "states", "joined_ts")
+    __slots__ = (
+        "cid", "edge", "activate_ts", "pre", "post", "states", "joined_ts", "conns"
+    )
 
     def __init__(self, cid: str):
         self.cid = cid
@@ -62,6 +69,21 @@ class Chassis:
         self.post: dict | None = None
         self.states: list[tuple[str, str]] = []  # (ts, state)
         self.joined_ts: str | None = None
+        self.conns: list[tuple[str, int | None]] = []  # (ts, control_conns_up)
+
+    def add_conns(self, ts: str, n: int | None) -> None:
+        if not self.conns or self.conns[-1][1] != n:
+            self.conns.append((ts, n))
+
+    def conns_trace(self) -> str:
+        if not self.conns:
+            return "—"
+        return "→".join("x" if n is None else str(n) for _, n in self.conns)
+
+    def flapped(self) -> bool:
+        """True if control_connections_up ever dropped after rising — a flap."""
+        seq = [n for _, n in self.conns if n is not None]
+        return any(b < a for a, b in zip(seq, seq[1:]))
 
     def short(self) -> str:
         return self.cid.split("-")[2] if self.cid.startswith("C8K-PAYG-") else self.cid
@@ -178,6 +200,17 @@ def parse(lines: list[str]):
             get(edge_current[edge]).add_state(ts, sm.group(1))
             continue
 
+        sm = RE_CONNS.search(msg)
+        if sm:
+            # Gate lines are "edge: control connections up: N" (no bracket);
+            # single-edge lines carry the [edge] thread label.
+            lead = RE_CONNS_LEADING.match(msg)
+            who = lead.group(1) if lead else edge
+            if who and who in edge_current:
+                n = None if sm.group(1) == "None" else int(sm.group(1))
+                get(edge_current[who]).add_conns(ts, n)
+            continue
+
         if RE_JOINED.search(msg) and edge and edge in edge_current:
             get(edge_current[edge]).joined_ts = ts
 
@@ -199,8 +232,8 @@ def report(chassis: dict[str, Chassis], serntpres: list[str]) -> None:
     rows.sort(key=lambda c: (c.activate_ts or c.states[0][0] if c.states else ""))
 
     header = (
-        f"{'CHASSIS':<8} {'EDGE':<9} {'PRE:present':<11} {'PRE:valid':<10} "
-        f"{'PRE:certState':<16} {'POST:certState':<16} {'OUTCOME':<8} {'csr→end':<8}"
+        f"{'CHASSIS':<8} {'EDGE':<9} {'PRE:valid':<10} {'OUTCOME':<8} "
+        f"{'csr→end':<8} {'FLAP':<5} {'CONNS(trace)':<18}"
     )
     print(header)
     print("-" * len(header))
@@ -208,13 +241,11 @@ def report(chassis: dict[str, Chassis], serntpres: list[str]) -> None:
         csr = c.csr_ts()
         tts, _ = c.terminal()
         dur = _secs(csr, tts) if csr and tts else None
+        flap = "YES" if c.flapped() else ("no" if c.conns else "—")
         print(
             f"{c.short():<8} {(c.edge or '?'):<9} "
-            f"{_pre_cell(c.pre, 'present'):<11} "
             f"{_pre_cell(c.pre, 'validity'):<10} "
-            f"{_pre_cell(c.pre, 'vedgeCertificateState'):<16} "
-            f"{_pre_cell(c.post, 'vedgeCertificateState'):<16} "
-            f"{c.outcome():<8} {_fmt_dur(dur):<8}"
+            f"{c.outcome():<8} {_fmt_dur(dur):<8} {flap:<5} {c.conns_trace():<18}"
         )
 
     succ = [c for c in rows if c.outcome() == "SUCCESS"]
@@ -240,12 +271,16 @@ def report(chassis: dict[str, Chassis], serntpres: list[str]) -> None:
             if c.csr_ts() and c.terminal()[0]
         ]
         avg = f"{sum(durs) // len(durs)}s" if durs else "—"
+        traced = [c for c in group if c.conns]
+        flapped = sum(1 for c in traced if c.flapped())
+        flap_str = f"{flapped}/{len(traced)}" if traced else "no trace"
         print(
             f"  {label:<8} present@activate={present} absent={absent} "
-            f"no-snapshot={nosnap} | validity={valids or '—'} | avg csr→end={avg}"
+            f"no-snapshot={nosnap} | validity={valids or '—'} | avg csr→end={avg} "
+            f"| control-conn flaps={flap_str}"
         )
 
-    print("Correlation (pre-activate snapshot vs outcome):")
+    print("Correlation (pre-activate snapshot + control-plane vs outcome):")
     bucket(succ, "SUCCESS")
     bucket(fail, "FAIL")
 
@@ -256,10 +291,12 @@ def report(chassis: dict[str, Chassis], serntpres: list[str]) -> None:
             print(f"  {t}")
 
     print()
-    print("Read: if FAIL rows skew toward absent / validity!='valid' at "
-          "pre-activate while SUCCESS rows are present+valid, propagation lag "
-          "is confirmed. If both look identical, the driver is elsewhere "
-          "(control-plane flap / BYOL→PAYG mismatch).")
+    print("Read: pre-activate validity is expected to be identical (propagation "
+          "was ruled out). The live signal is FLAP — if FAIL rows flap "
+          "(control conns rise then drop, e.g. 0→1→0) during csr→install while "
+          "SUCCESS rows hold steady to 2+, the driver is control-plane "
+          "instability during the vManage cert push (consistent with the "
+          "BYOL→PAYG mismatch churning DTLS).")
 
 
 def _slice(lines: list[str], since: str | None, scan_all: bool) -> list[str]:

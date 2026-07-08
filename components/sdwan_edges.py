@@ -36,12 +36,17 @@ _ACTIVATION_LOCK = threading.Lock()
 _LATEST_CHASSIS_BY_EDGE: dict[str, str] = {}
 _LATEST_CHASSIS_LOCK = threading.Lock()
 _LAST_REPORTED_CERT_STATE_BY_EDGE: dict[str, str] = {}
+# Last control_connections_up value logged per edge, so we only emit the
+# in-window control-plane trace on change (a flap shows up as a transition).
+_LAST_REPORTED_CONNS_BY_EDGE: dict[str, int | None] = {}
 
 
 def _record_latest_edge_chassis(edge_name: str, chassis_id: str) -> None:
     with _LATEST_CHASSIS_LOCK:
         _LATEST_CHASSIS_BY_EDGE[edge_name] = chassis_id
         _LAST_REPORTED_CERT_STATE_BY_EDGE.pop(edge_name, None)
+        # Reset the conns trace so each new chassis attempt starts fresh.
+        _LAST_REPORTED_CONNS_BY_EDGE.pop(edge_name, None)
 
 
 def _get_latest_edge_chassis(edge_name: str) -> str | None:
@@ -233,6 +238,21 @@ def _is_edge_in_fabric(manager_config, system_ip: str) -> bool:
     return False
 
 
+def _edge_control_conns(manager_config, system_ip: str) -> int | None:
+    """vManage's current ``control_connections_up`` count for ``system_ip``, or
+    ``None`` if the edge is absent from the health API.
+
+    Used to log the in-window control-plane trace during cert install. Fabric
+    membership is ``>= 2`` (see :func:`_is_edge_in_fabric`); watching the raw
+    count reveals whether a failing attempt's DTLS connections flap (e.g.
+    ``0 -> 1 -> 0``) while vManage tries to push the signed cert.
+    """
+    for item in get_edge_health_items(manager_config):
+        if item.get("system_ip") == system_ip:
+            return _safe_int(item.get("control_connections_up"))
+    return None
+
+
 def _wait_for_edge_in_fabric(
     manager_config,
     system_ip: str,
@@ -251,8 +271,13 @@ def _wait_for_edge_in_fabric(
 
     start = time.time()
     last_cert_state = None
+    last_conns: object = "unset"
     while True:
-        if _is_edge_in_fabric(manager_config, system_ip):
+        conns = _edge_control_conns(manager_config, system_ip)
+        if conns != last_conns:
+            out.info(f"control connections up: {conns}")
+            last_conns = conns
+        if conns is not None and conns >= 2:
             out.success("Edge has joined the SD-WAN fabric.")
             return True, None
 
@@ -804,6 +829,89 @@ def _edges_not_in_fabric(
     return missing_or_down
 
 
+def _log_edge_control_conns(
+    edge_configs: list[settings.EdgeConfig],
+    edge_name_by_id: dict[int, str],
+) -> None:
+    """Emit each edge's ``control_connections_up`` on change during the gate.
+
+    The multi-edge convergence gate polls vManage, not the edge, so this is our
+    only in-window view of control-plane stability. Logging on change keeps the
+    trace compact while still capturing every flap as a transition.
+    """
+    health = {
+        item.get("system_ip"): item
+        for item in get_edge_health_items(settings.manager)
+    }
+    for edge_config in edge_configs:
+        name = edge_name_by_id.get(id(edge_config), edge_config.system_ip)
+        item = health.get(edge_config.system_ip)
+        conns = _safe_int(item.get("control_connections_up")) if item else None
+        if _LAST_REPORTED_CONNS_BY_EDGE.get(name, "unset") != conns:
+            out.info(f"{name}: control connections up: {conns}")
+            _LAST_REPORTED_CONNS_BY_EDGE[name] = conns
+
+
+def _dump_gate_failure_diagnostics(
+    edge_configs: list[settings.EdgeConfig],
+    edge_name_by_id: dict[int, str],
+    failed_edges: list[str],
+) -> None:
+    """Reconnect to each cert-install-failed edge and log a one-shot edge-side
+    diagnostic (control connections + history + cert + syslog).
+
+    The convergence gate would otherwise regenerate a new chassis without ever
+    looking at *why* the attempt failed, since it only reads vManage. This is
+    best-effort and never raises: a failed reconnect just logs a note.
+    """
+    config_by_name = {
+        edge_name_by_id.get(id(cfg), "edge"): cfg for cfg in edge_configs
+    }
+    for name in failed_edges:
+        edge_config = config_by_name.get(name)
+        if not edge_config:
+            continue
+        chassis_id = _get_latest_edge_chassis(name) or "unknown"
+        with thread_label(f"[{name}]"):
+            net_connect = None
+            try:
+                net_connect = connect_to_device(
+                    settings.EDGE_DEVICE_TYPE,
+                    edge_config.mgmt_ip,
+                    edge_config.username,
+                    edge_config.password,
+                    exit_on_failure=False,
+                )
+                if not net_connect:
+                    net_connect = connect_to_device(
+                        settings.EDGE_DEVICE_TYPE,
+                        edge_config.mgmt_ip,
+                        edge_config.username,
+                        edge_config.default_password,
+                        exit_on_failure=False,
+                    )
+                if not net_connect:
+                    out.log_only(
+                        "Gate diagnostics: could not connect to edge to capture "
+                        "cert-failure diagnostics.",
+                        level="warning",
+                    )
+                    continue
+                _capture_edge_cert_diagnostics(
+                    net_connect, chassis_id, "certinstallfailed"
+                )
+            except Exception as exc:  # pragma: no cover - diagnostic path
+                out.log_only(
+                    f"Gate diagnostics capture failed: {exc}", level="warning"
+                )
+            finally:
+                if net_connect:
+                    try:
+                        net_connect.disconnect()
+                    except Exception:  # pragma: no cover - defensive
+                        pass
+
+
 def _wait_for_edges_in_fabric(
     edge_configs: list[settings.EdgeConfig],
     edge_name_by_id: dict[int, str],
@@ -822,6 +930,7 @@ def _wait_for_edges_in_fabric(
     start = time.time()
     with phase("edge_fabric_gate"):
         while True:
+            _log_edge_control_conns(edge_configs, edge_name_by_id)
             down_edges = _edges_not_in_fabric(edge_configs, edge_name_by_id)
             if not down_edges:
                 out.success("All targeted edges have joined the SD-WAN fabric.")
@@ -849,6 +958,9 @@ def _wait_for_edges_in_fabric(
                     "vManage reported cert install failure for: "
                     + ", ".join(sorted(failed_cert_edges))
                     + "; retrying those edges without waiting for the full fabric timeout."
+                )
+                _dump_gate_failure_diagnostics(
+                    edge_configs, edge_name_by_id, sorted(failed_cert_edges)
                 )
                 return sorted(failed_cert_edges)
 
