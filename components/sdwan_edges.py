@@ -952,6 +952,15 @@ def _wait_for_edges_in_fabric(
     edge_configs: list[settings.EdgeConfig],
     edge_name_by_id: dict[int, str],
 ) -> list[str]:
+    """Wait until every edge reaches >=2 control connections.
+
+    Returns the edges that need a FRESH chassis (regeneration): those whose cert
+    genuinely failed (`certinstallfailed`) or never installed within the timeout.
+    An edge whose latest chassis is already `certinstalled` is never returned —
+    its cert works, so control still <2 is a convergence/data-plane matter, and a
+    new chassis would only tear down the working identity. Raises SystemExit if a
+    `certinstalled` edge still can't converge control (data-plane/TLOC issue).
+    """
     if len(edge_configs) <= 1:
         out.info("Skipping shared fabric-membership gate for a single edge target.")
         return []
@@ -964,6 +973,15 @@ def _wait_for_edges_in_fabric(
     )
 
     start = time.time()
+    # Per-edge deadline: each edge gets `timeout` to install its cert, then a
+    # fresh `timeout` (reset the moment it installs) for its control plane to
+    # converge. A chassis whose cert is already `certinstalled` is NEVER
+    # regenerated — regenerating a working identity is what caused edges to churn
+    # and never settle.
+    all_names = [edge_name_by_id.get(id(c), c.system_ip) for c in edge_configs]
+    deadline = {name: start + timeout_seconds for name in all_names}
+    cert_installed: set[str] = set()
+
     with phase("edge_fabric_gate"):
         while True:
             _log_edge_control_conns(edge_configs, edge_name_by_id, start)
@@ -972,12 +990,15 @@ def _wait_for_edges_in_fabric(
                 out.success("All targeted edges have joined the SD-WAN fabric.")
                 return []
 
-            failed_cert_edges = []
+            now = time.time()
+            regen: list[str] = []  # genuine cert failures -> fresh chassis now
             for edge_name in down_edges:
                 chassis_id = _get_latest_edge_chassis(edge_name)
-                if not chassis_id:
-                    continue
-                cert_state = _get_chassis_cert_state(settings.manager, chassis_id)
+                cert_state = (
+                    _get_chassis_cert_state(settings.manager, chassis_id)
+                    if chassis_id
+                    else None
+                )
                 last_state = _LAST_REPORTED_CERT_STATE_BY_EDGE.get(edge_name)
                 if cert_state and cert_state != last_state:
                     out.info(
@@ -985,27 +1006,50 @@ def _wait_for_edges_in_fabric(
                         f"{chassis_id}: {cert_state!r}"
                     )
                     _LAST_REPORTED_CERT_STATE_BY_EDGE[edge_name] = cert_state
-                if cert_state in _CERT_STATES_WHERE_EARLY_RETRY_MAY_HELP:
-                    failed_cert_edges.append(edge_name)
 
-            if failed_cert_edges:
-                increment_run_stat("edge_cert_early_retries", len(failed_cert_edges))
+                if cert_state == "certinstalled":
+                    # Cert works; never regenerate. Give control its own window.
+                    if edge_name not in cert_installed:
+                        cert_installed.add(edge_name)
+                        deadline[edge_name] = now + timeout_seconds
+                elif cert_state in _CERT_STATES_WHERE_EARLY_RETRY_MAY_HELP:
+                    regen.append(edge_name)
+
+            # Fast-bail: genuine cert failures (certinstallfailed) regenerate now.
+            if regen:
+                increment_run_stat("edge_cert_early_retries", len(regen))
                 out.warning(
                     "vManage reported cert install failure for: "
-                    + ", ".join(sorted(failed_cert_edges))
-                    + "; retrying those edges without waiting for the full fabric timeout."
+                    + ", ".join(sorted(regen))
+                    + "; regenerating those edges with a fresh chassis."
                 )
                 _dump_gate_failure_diagnostics(
-                    edge_configs, edge_name_by_id, sorted(failed_cert_edges)
+                    edge_configs, edge_name_by_id, sorted(regen)
                 )
-                return sorted(failed_cert_edges)
+                return sorted(regen)
 
-            if time.time() - start >= timeout_seconds:
+            expired = [name for name in down_edges if now >= deadline[name]]
+            if expired:
+                installed_stuck = sorted(n for n in expired if n in cert_installed)
+                never_installed = sorted(n for n in expired if n not in cert_installed)
+                if installed_stuck:
+                    # Cert is good but control never converged -> data-plane/TLOC,
+                    # not a certificate problem. Do NOT regenerate a working
+                    # identity (mirrors the BFD-convergence handling below).
+                    out.error(
+                        "Cert is installed but the control plane did not converge "
+                        "for: " + ", ".join(installed_stuck)
+                        + ". This is a data-plane/TLOC issue, not a certificate "
+                        "issue; not regenerating."
+                    )
+                    raise SystemExit(1)
+                # CSR never completed for these -> a fresh chassis is warranted.
                 out.warning(
-                    "Fabric membership did not converge before timeout for: "
-                    + ", ".join(sorted(down_edges))
+                    "Cert did not install before timeout for: "
+                    + ", ".join(never_installed)
+                    + "; regenerating with a fresh chassis."
                 )
-                return down_edges
+                return never_installed
 
             out.spinner_wait(
                 "Next fabric-membership check for: " + ", ".join(sorted(down_edges)),
@@ -1123,10 +1167,11 @@ def run_edges_automation(
             )
 
         if use_bfd_convergence_gate:
-            # First prove every edge has both control connections. If a peer is
-            # missing control, BFD on the healthy peers cannot fully converge;
-            # retry only the control-down edges instead of regenerating certs
-            # for already-authenticated edges.
+            # First prove every edge has both control connections. The gate only
+            # returns edges that need a fresh chassis (cert failed / never
+            # installed); it never returns already-authenticated (certinstalled)
+            # edges — those are waited out or flagged as data-plane issues, not
+            # regenerated.
             retry_names = sorted(
                 _wait_for_edges_in_fabric(edge_configs, edge_name_by_id)
             )
