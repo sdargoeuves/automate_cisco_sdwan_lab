@@ -440,11 +440,22 @@ def report(chassis: dict[str, Chassis], serntpres: list[str]) -> None:
             f"({', '.join(c.short() for c in lone_fail)}) — concurrency is NOT "
             "the sole cause; serialization alone won't eliminate failures."
         )
-    elif fail:
-        print(
-            "  ✓ every FAIL overlapped ≥1 peer — consistent with the concurrency "
-            "race; full serialization is worth testing."
-        )
+    # Concurrency only implicates itself if FAIL chassis are MORE crowded than
+    # SUCCESS chassis. Equal overlap means it doesn't distinguish the outcome.
+    fo = [ov for c in fail if (ov := overlaps(c)) is not None]
+    so = [ov for c in succ if (ov := overlaps(c)) is not None]
+    if fo and so:
+        diff = sum(fo) / len(fo) - sum(so) / len(so)
+        if diff >= 0.5:
+            print(
+                f"  → FAIL overlap exceeds SUCCESS by {diff:.1f} peers — "
+                "concurrency may be a factor; serialization worth testing."
+            )
+        else:
+            print(
+                "  → FAIL and SUCCESS overlap are similar — concurrency does NOT "
+                "distinguish outcome in this window (failures look inherent)."
+            )
 
     if serntpres:
         print()

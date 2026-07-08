@@ -39,6 +39,10 @@ _LAST_REPORTED_CERT_STATE_BY_EDGE: dict[str, str] = {}
 # Last control_connections_up value logged per edge, so we only emit the
 # in-window control-plane trace on change (a flap shows up as a transition).
 _LAST_REPORTED_CONNS_BY_EDGE: dict[str, int | None] = {}
+# Edges whose SDWAN root CA chain we've already installed this process. The root
+# chain is per-edge and persists across chassis regenerations, so we install it
+# once per edge instead of re-doing SCP + install + poll on every cert retry.
+_ROOT_CERT_INSTALLED: set[str] = set()
 
 
 def _record_latest_edge_chassis(edge_name: str, chassis_id: str) -> None:
@@ -704,27 +708,34 @@ def _run_edge_automation_body(
             raise SystemExit(1)
         license_entry = licenses[0]
         _record_latest_edge_chassis(label, license_entry["chassis"])
-        if not scp_copy_file(
-            net_connect,
-            host=config.validator_ip,
-            username=settings.validator.username,
-            password=settings.validator.password,
-            remote_file=settings.ROOT_CERT,
-            destination="bootflash:/sdwan/",
-            description="Copying root certificate from validator via SCP...",
-        ):
-            net_connect.disconnect()
-            raise SystemExit(1)
-        _install_root_cert(net_connect)
-        if not _wait_for_edge_cert(net_connect):
-            out.step("Re-installing root certificate with 'new-roots' option...")
-            _install_root_cert(net_connect, use_new_roots=True)
-            if not _wait_for_edge_cert(net_connect):
-                out.error(
-                    "Device certificate still not installed; aborting activation."
-                )
+        # The root CA chain is per-edge and persists across chassis regenerations,
+        # so only install it once per edge per run — retries just need a fresh
+        # PAYG chassis + activation, not another ~2 min SCP + install + poll.
+        if label in _ROOT_CERT_INSTALLED:
+            out.info("Root CA chain already installed this run; skipping SCP + install.")
+        else:
+            if not scp_copy_file(
+                net_connect,
+                host=config.validator_ip,
+                username=settings.validator.username,
+                password=settings.validator.password,
+                remote_file=settings.ROOT_CERT,
+                destination="bootflash:/sdwan/",
+                description="Copying root certificate from validator via SCP...",
+            ):
                 net_connect.disconnect()
                 raise SystemExit(1)
+            _install_root_cert(net_connect)
+            if not _wait_for_edge_cert(net_connect):
+                out.step("Re-installing root certificate with 'new-roots' option...")
+                _install_root_cert(net_connect, use_new_roots=True)
+                if not _wait_for_edge_cert(net_connect):
+                    out.error(
+                        "Device certificate still not installed; aborting activation."
+                    )
+                    net_connect.disconnect()
+                    raise SystemExit(1)
+            _ROOT_CERT_INSTALLED.add(label)
         # Serialize activation across worker threads so vManage doesn't receive
         # multiple CSRs concurrently — concurrent CSRs from PAYG-generated
         # chassis trigger BYOL/PAYG mismatch races that leave edges in
