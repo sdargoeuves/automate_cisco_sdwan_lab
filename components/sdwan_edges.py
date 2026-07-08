@@ -253,6 +253,22 @@ def _edge_control_conns(manager_config, system_ip: str) -> int | None:
     return None
 
 
+def _edge_health_trace(item: dict | None) -> tuple:
+    """Compact (control_conns_up, bfd_up, reachability) trace from a health item.
+
+    Used to log the in-window control-plane + data-plane state on every change
+    during cert install, so we can correlate the DTLS flap (e.g. 0->1->0->2)
+    and BFD coming up against the vManage cert-state transitions.
+    """
+    if not item:
+        return (None, None, None)
+    return (
+        _safe_int(item.get("control_connections_up")),
+        _safe_int(item.get("bfd_sessions_up")),
+        item.get("reachability"),
+    )
+
+
 def _wait_for_edge_in_fabric(
     manager_config,
     system_ip: str,
@@ -271,12 +287,25 @@ def _wait_for_edge_in_fabric(
 
     start = time.time()
     last_cert_state = None
-    last_conns: object = "unset"
+    last_trace: object = "unset"
     while True:
-        conns = _edge_control_conns(manager_config, system_ip)
-        if conns != last_conns:
-            out.info(f"control connections up: {conns}")
-            last_conns = conns
+        item = next(
+            (
+                it
+                for it in get_edge_health_items(manager_config)
+                if it.get("system_ip") == system_ip
+            ),
+            None,
+        )
+        conns, bfd, reach = _edge_health_trace(item)
+        trace = (conns, bfd, reach)
+        if trace != last_trace:
+            elapsed = int(time.time() - start)
+            out.info(
+                f"[+{elapsed}s] control conns up: {conns}, bfd up: {bfd}, "
+                f"reachability: {reach}"
+            )
+            last_trace = trace
         if conns is not None and conns >= 2:
             out.success("Edge has joined the SD-WAN fabric.")
             return True, None
@@ -284,7 +313,8 @@ def _wait_for_edge_in_fabric(
         if chassis_id:
             cert_state = _get_chassis_cert_state(manager_config, chassis_id)
             if cert_state != last_cert_state:
-                out.info(f"vManage chassis cert state: {cert_state!r}")
+                elapsed = int(time.time() - start)
+                out.info(f"[+{elapsed}s] vManage chassis cert state: {cert_state!r}")
                 last_cert_state = cert_state
             if cert_state in _CERT_STATES_WHERE_EARLY_RETRY_MAY_HELP:
                 increment_run_stat("edge_cert_early_retries")
@@ -832,24 +862,30 @@ def _edges_not_in_fabric(
 def _log_edge_control_conns(
     edge_configs: list[settings.EdgeConfig],
     edge_name_by_id: dict[int, str],
+    start: float,
 ) -> None:
-    """Emit each edge's ``control_connections_up`` on change during the gate.
+    """Emit each edge's control/BFD/reachability trace on change during the gate.
 
     The multi-edge convergence gate polls vManage, not the edge, so this is our
     only in-window view of control-plane stability. Logging on change keeps the
-    trace compact while still capturing every flap as a transition.
+    trace compact while still capturing every flap as a transition; the elapsed
+    stamp lets us line the flap up against the vManage cert-state transitions.
     """
     health = {
         item.get("system_ip"): item
         for item in get_edge_health_items(settings.manager)
     }
+    elapsed = int(time.time() - start)
     for edge_config in edge_configs:
         name = edge_name_by_id.get(id(edge_config), edge_config.system_ip)
-        item = health.get(edge_config.system_ip)
-        conns = _safe_int(item.get("control_connections_up")) if item else None
-        if _LAST_REPORTED_CONNS_BY_EDGE.get(name, "unset") != conns:
-            out.info(f"{name}: control connections up: {conns}")
-            _LAST_REPORTED_CONNS_BY_EDGE[name] = conns
+        trace = _edge_health_trace(health.get(edge_config.system_ip))
+        if _LAST_REPORTED_CONNS_BY_EDGE.get(name, "unset") != trace:
+            conns, bfd, reach = trace
+            out.info(
+                f"{name}: [+{elapsed}s] control conns up: {conns}, bfd up: {bfd}, "
+                f"reachability: {reach}"
+            )
+            _LAST_REPORTED_CONNS_BY_EDGE[name] = trace
 
 
 def _dump_gate_failure_diagnostics(
@@ -930,7 +966,7 @@ def _wait_for_edges_in_fabric(
     start = time.time()
     with phase("edge_fabric_gate"):
         while True:
-            _log_edge_control_conns(edge_configs, edge_name_by_id)
+            _log_edge_control_conns(edge_configs, edge_name_by_id, start)
             down_edges = _edges_not_in_fabric(edge_configs, edge_name_by_id)
             if not down_edges:
                 out.success("All targeted edges have joined the SD-WAN fabric.")

@@ -42,11 +42,16 @@ RE_SNAP_ABSENT = re.compile(
 RE_ACTIVATE = re.compile(rf"Activating PAYG license for chassis {CHASSIS} \(attempt")
 RE_STATE_MULTI = re.compile(rf"vManage cert state for latest chassis {CHASSIS}: '(\w+)'")
 RE_STATE_SINGLE = re.compile(r"vManage chassis cert state: '(\w+)'")
-# Control-conn trace, emitted either as "[edge] control connections up: N"
-# (single-edge path, thread-labelled) or "edge: control connections up: N"
-# (multi-edge gate). Value is an int or "None" (edge absent from health).
-RE_CONNS = re.compile(r"control connections up: (\d+|None)")
-RE_CONNS_LEADING = re.compile(r"^([\w-]+): control connections up:")
+# Control-conn trace. Two log-format eras (both may appear in one log):
+#   OLD: "[edge] control connections up: N"  /  "edge: control connections up: N"
+#   NEW: "[edge] [+Ns] control conns up: N, bfd up: M, reachability: R"
+#        "edge: [+Ns] control conns up: N, bfd up: M, reachability: R"
+# `conn(?:ection)?s` matches both "conns" and "connections". Value is an int or
+# "None" (edge absent from health).
+RE_CONNS = re.compile(r"control conn(?:ection)?s up: (\d+|None)")
+RE_CONNS_LEADING = re.compile(
+    r"^([\w-]+): (?:\[\+\d+s\] )?control conn(?:ection)?s up:"
+)
 RE_JOINED = re.compile(r"Edge has joined the SD-WAN fabric\.")
 RE_EDGE_BRACKET = re.compile(r"^\[([\w-]+)\] ")
 RE_EDGE_LEADING = re.compile(r"^([\w-]+) vManage cert state")
