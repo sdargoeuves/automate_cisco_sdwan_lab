@@ -80,12 +80,15 @@ timing:
   edge_cert_validity_timeout_seconds: 600
   edge_cert_validity_max_attempts: 2
 
+  # Per-edge cert-retry budget: how many fresh-chassis attempts each edge gets in
+  # the multi-edge deploy before it's handed off to `edges failed --cert`.
+  edge_cert_retry_max_attempts: 4
+
   # Final fabric convergence gate. After edge workers finish, automation polls
   # vManage until every targeted edge has at least one BFD session up; edges
   # still at BFD=0 are retried with a fresh cert flow up to this limit.
   edge_bfd_convergence_poll_interval_seconds: 30
   edge_bfd_convergence_timeout_seconds: 300
-  edge_bfd_convergence_max_attempts: 3
 
   # Edge config-readiness gate. A freshly-booted vEdge answers SSH/login before
   # confd is ready to accept `config-transaction`. Before pushing initial edge

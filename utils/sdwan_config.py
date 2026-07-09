@@ -105,7 +105,7 @@ EDGE_DEVICE_TYPE: str = None
 # Grouped timing/retry settings (see the spec types above).
 root_ca_install: PollSpec = None      # root CA chain install poll
 fabric_gate: PollSpec = None          # control-connection convergence gate
-bfd_gate: PollSpec = None             # BFD convergence gate
+bfd_gate: PollSpec = None             # BFD convergence gate (poll/timeout only)
 config_ready: PollSpec = None         # edge config-mode readiness probe
 controller_reboot: PollSpec = None    # vBond/vSmart post-reboot re-sync
 csr_file: PollSpec = None             # manager CSR file appearance
@@ -114,6 +114,9 @@ csr_generation: RetrySpec = None      # manager CSR generation API retry
 commit_retry: CommitRetry = None      # netmiko commit retry
 connect_retry: ConnectRetry = None    # netmiko initial-connect retry
 waits: Waits = None                   # fixed delays + standalone timeouts
+# How many times the multi-edge deploy regenerates a fresh chassis and re-tries
+# onboarding a still-down edge before handing it off to `edges failed --cert`.
+edge_retry_budget: int = None
 RSA_KEY: str = None
 ROOT_CERT: str = None
 SIGNED_CERT: str = None
@@ -450,6 +453,7 @@ def load(variables_path=None) -> None:
     global ORG, USERNAME, DEFAULT_PASSWORD, UPDATED_PASSWORD, PORT, EDGE_DEVICE_TYPE
     global root_ca_install, fabric_gate, bfd_gate, config_ready, controller_reboot
     global csr_file, payg_activate, csr_generation, commit_retry, connect_retry, waits
+    global edge_retry_budget
     global RSA_KEY, ROOT_CERT, SIGNED_CERT, VALIDATOR_IP, CONTROLLER_IP
     global MANAGER_DEVICE, VALIDATOR_DEVICE, CONTROLLER_DEVICE
     global EDGE_GROUP, EDGE_DEVICES
@@ -492,8 +496,10 @@ def load(variables_path=None) -> None:
     bfd_gate = PollSpec(
         poll=int(_timing.get("edge_bfd_convergence_poll_interval_seconds", 30)),
         timeout=int(_timing.get("edge_bfd_convergence_timeout_seconds", 300)),
-        max_attempts=int(_timing.get("edge_bfd_convergence_max_attempts", 3)),
     )
+    # Per-edge cert-retry budget for the multi-edge deploy: how many fresh-chassis
+    # attempts an edge gets before it's handed off to `edges failed --cert`.
+    edge_retry_budget = int(_timing.get("edge_cert_retry_max_attempts", 4))
     config_ready = PollSpec(
         poll=int(_timing.get("edge_config_ready_poll_interval_seconds", 20)),
         timeout=int(_timing.get("edge_config_ready_timeout_seconds", 600)),

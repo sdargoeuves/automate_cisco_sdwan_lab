@@ -148,9 +148,9 @@ timing:
   edge_cert_validity_poll_interval_seconds: 15
   edge_cert_validity_timeout_seconds: 600
   edge_cert_validity_max_attempts: 2
+  edge_cert_retry_max_attempts: 4
   edge_bfd_convergence_poll_interval_seconds: 30
   edge_bfd_convergence_timeout_seconds: 300
-  edge_bfd_convergence_max_attempts: 3
   edge_config_ready_poll_interval_seconds: 20
   edge_config_ready_timeout_seconds: 600
   wait_csr_generation_seconds: 30

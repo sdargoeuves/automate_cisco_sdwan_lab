@@ -1125,7 +1125,7 @@ def run_edges_automation(
     }
 
     use_bfd_convergence_gate = cert and len(edge_configs) > 1
-    max_attempts = settings.bfd_gate.max_attempts if cert else 1
+    max_attempts = settings.edge_retry_budget if cert else 1
     phase_edge_configs = edge_configs
     phase_initial_config = initial_config
     phase_config_file = config_file
