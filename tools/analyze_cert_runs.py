@@ -74,7 +74,7 @@ FAIL_STATES = {"certinstallfailed"}
 class Chassis:
     __slots__ = (
         "cid", "edge", "activate_ts", "pre", "post", "states", "joined_ts",
-        "conns", "bfds",
+        "conns", "bfds", "license_mismatch",
     )
 
     def __init__(self, cid: str):
@@ -87,6 +87,9 @@ class Chassis:
         self.joined_ts: str | None = None
         self.conns: list[tuple[str, int | None]] = []  # (ts, control_conns_up)
         self.bfds: list[tuple[str, int | None]] = []  # (ts, bfd_sessions_up)
+        # True if this chassis's on-failure diagnostic dump contained
+        # %VDAEMON-6-SYSTEM_LICENSE_MISMATCH (BYOL↔PAYG association mismatch).
+        self.license_mismatch: bool = False
 
     def add_conns(self, ts: str, n: int | None) -> None:
         if not self.conns or self.conns[-1][1] != n:
@@ -206,6 +209,9 @@ def parse(lines: list[str]):
     chassis: dict[str, Chassis] = {}
     edge_current: dict[str, str] = {}  # edge -> current chassis id
     serntpres: list[str] = []
+    # Chassis whose on-failure `show logging` diagnostic dump we're currently
+    # reading (its raw device-output lines don't match LINE_RE).
+    diag_chassis: str | None = None
 
     def get(cid: str) -> Chassis:
         return chassis.setdefault(cid, Chassis(cid))
@@ -219,9 +225,19 @@ def parse(lines: list[str]):
                 serntpres.append(sm.group(1))
         m = LINE_RE.match(raw)
         if not m:
+            # Raw device output (e.g. inside a diagnostic dump). Attribute a
+            # BYOL↔PAYG mismatch to the chassis whose `show logging` we're in.
+            if diag_chassis and "SYSTEM_LICENSE_MISMATCH" in raw:
+                get(diag_chassis).license_mismatch = True
             continue
         ts, msg = m.group(1), m.group(2)
         edge = _edge_of(msg)
+        # Enter/exit "reading a show-logging diagnostic dump" mode. Any real log
+        # line ends a prior dump; the show-logging header starts a new one.
+        if "Edge cert diagnostic: show logging" in msg and edge in edge_current:
+            diag_chassis = edge_current[edge]
+        else:
+            diag_chassis = None
 
         sm = RE_ACTIVATE.search(msg)
         if sm:
@@ -456,6 +472,31 @@ def report(chassis: dict[str, Chassis], serntpres: list[str]) -> None:
                 "  → FAIL and SUCCESS overlap are similar — concurrency does NOT "
                 "distinguish outcome in this window (failures look inherent)."
             )
+
+    # Root-cause signal: does the BYOL↔PAYG license mismatch explain failures?
+    # NOTE: on-failure diagnostics are only captured for FAILED chassis, so a
+    # SUCCESS chassis never has a dump to inspect — its absence is NOT evidence.
+    fail_mm = sum(1 for c in fail if c.license_mismatch)
+    print()
+    print("License-mismatch (BYOL↔PAYG) root-cause signal:")
+    if fail:
+        print(
+            f"  FAIL chassis whose diagnostic shows SYSTEM_LICENSE_MISMATCH: "
+            f"{fail_mm}/{len(fail)}"
+        )
+        if fail_mm == len(fail):
+            print(
+                "  → every failure carries the BYOL↔PAYG mismatch. CAUTION: "
+                "%VDAEMON-6 is severity=informational and all edges boot the same "
+                "BYOL image, so this line likely appears on SUCCESSES too (benign "
+                "constant). A causal read is unconfirmed — capture success-side "
+                "license state to disambiguate."
+            )
+    print(
+        "  (Diagnostics are dumped only on FAILURE, so SUCCESS chassis show no "
+        "mismatch line by construction — proving the ⇔ needs capturing license "
+        "state on success too.)"
+    )
 
     if serntpres:
         print()

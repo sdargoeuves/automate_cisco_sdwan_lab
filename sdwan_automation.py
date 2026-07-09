@@ -160,15 +160,15 @@ def _run_all(out: Output) -> None:
         run_manager_automation(settings.manager, initial_config=True, cert=True)
     with phase("wait_before_validator"):
         out.spinner_wait(
-            f"Waiting {settings.WAIT_BEFORE_AUTOMATING_VALIDATOR_SECONDS}s before starting Validator automation...",
-            settings.WAIT_BEFORE_AUTOMATING_VALIDATOR_SECONDS,
+            f"Waiting {settings.waits.before_validator}s before starting Validator automation...",
+            settings.waits.before_validator,
         )
     with phase("validator"):
         run_validator_automation(settings.validator, initial_config=True, cert=True)
     with phase("wait_before_controller"):
         out.spinner_wait(
-            f"Waiting {settings.WAIT_BEFORE_AUTOMATING_CONTROLLER_SECONDS}s before starting Controller automation...",
-            settings.WAIT_BEFORE_AUTOMATING_CONTROLLER_SECONDS,
+            f"Waiting {settings.waits.before_controller}s before starting Controller automation...",
+            settings.waits.before_controller,
         )
     with phase("controller"):
         run_controller_automation(settings.controller, initial_config=True, cert=True)
@@ -190,7 +190,7 @@ def _run_all(out: Output) -> None:
                 edge_configs,
                 initial_config=True,
                 cert=True,
-                stagger_seconds=settings.EDGE_STAGGER_SECONDS,
+                stagger_seconds=settings.waits.edge_stagger,
             )
 
     out.header("All Components Complete")
@@ -640,7 +640,7 @@ def main():
                 config_file=args.config_file,
                 cert=args.cert,
                 extra_routing=args.extra_routing,
-                stagger_seconds=settings.EDGE_STAGGER_SECONDS,
+                stagger_seconds=settings.waits.edge_stagger,
             )
         out.header("Edges Complete")
         out.success("Edge automation finished")

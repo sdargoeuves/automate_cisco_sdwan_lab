@@ -100,6 +100,6 @@ def reboot_out_of_sync_components(
     if rebooted_any:
         _wait_for_controllers_in_sync(
             manager_config,
-            poll_interval=settings.CONTROLLER_POST_REBOOT_POLL_INTERVAL_SECONDS,
-            timeout=settings.CONTROLLER_POST_REBOOT_TIMEOUT_SECONDS,
+            poll_interval=settings.controller_reboot.poll,
+            timeout=settings.controller_reboot.timeout,
         )

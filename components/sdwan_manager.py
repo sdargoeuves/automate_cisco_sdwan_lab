@@ -154,7 +154,7 @@ def run_certificate_automation(net_connect, config: settings.ManagerConfig):
 
     out.step("Generating CSR...")
     csr_generated = False
-    max_csr_attempts = settings.CSR_GENERATION_MAX_ATTEMPTS
+    max_csr_attempts = settings.csr_generation.max_attempts
 
     for csr_attempt in range(1, max_csr_attempts + 1):
         try:
@@ -175,9 +175,9 @@ def run_certificate_automation(net_connect, config: settings.ManagerConfig):
 
         if csr_attempt < max_csr_attempts:
             out.spinner_wait(
-                f"Retrying CSR generation in {settings.CSR_GENERATION_RETRY_WAIT_SECONDS}s "
+                f"Retrying CSR generation in {settings.csr_generation.wait}s "
                 f"(attempt {csr_attempt + 1}/{max_csr_attempts})...",
-                settings.CSR_GENERATION_RETRY_WAIT_SECONDS,
+                settings.csr_generation.wait,
             )
         else:
             out.error(f"CSR generation failed after {max_csr_attempts} attempts")
@@ -187,9 +187,9 @@ def run_certificate_automation(net_connect, config: settings.ManagerConfig):
         return False
 
     csr_found = False
-    poll_interval_seconds = settings.CSR_FILE_POLL_INTERVAL_SECONDS
+    poll_interval_seconds = settings.csr_file.poll
     max_attempts = max(
-        1, int(settings.CSR_FILE_TIMEOUT_SECONDS / poll_interval_seconds)
+        1, int(settings.csr_file.timeout / poll_interval_seconds)
     )
     for attempt in range(max_attempts):
         try:
@@ -212,7 +212,7 @@ def run_certificate_automation(net_connect, config: settings.ManagerConfig):
 
     if not csr_found:
         out.error(
-            f"CSR file was not created after {settings.CSR_FILE_TIMEOUT_SECONDS} second(s)"
+            f"CSR file was not created after {settings.csr_file.timeout} second(s)"
         )
         return False
 

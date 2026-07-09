@@ -75,7 +75,7 @@ def generate_payg_licenses(
     wait_seconds: int = None,
 ) -> list[dict]:
     if wait_seconds is None:
-        wait_seconds = settings.WAIT_AFTER_GENERATING_PAYG_LICENSE_SECONDS
+        wait_seconds = settings.waits.after_payg_license
     out.header("EDGE - Generate PAYG Licenses")
     try:
         response = sdk_call_json(
@@ -143,9 +143,9 @@ def _wait_for_edge_cert(
     timeout_seconds: int = None,
 ) -> bool:
     if poll_interval_seconds is None:
-        poll_interval_seconds = settings.EDGE_CERT_POLL_INTERVAL_SECONDS
+        poll_interval_seconds = settings.root_ca_install.poll
     if timeout_seconds is None:
-        timeout_seconds = settings.EDGE_CERT_POLL_TIMEOUT_SECONDS
+        timeout_seconds = settings.root_ca_install.timeout
     out.step(
         "Waiting for root CA chain to be installed "
         f"(poll {poll_interval_seconds}s, timeout {timeout_seconds}s)..."
@@ -281,9 +281,9 @@ def _wait_for_edge_in_fabric(
     timeout_seconds: int = None,
 ) -> tuple[bool, str | None]:
     if poll_interval_seconds is None:
-        poll_interval_seconds = settings.EDGE_CERT_VALIDITY_POLL_INTERVAL_SECONDS
+        poll_interval_seconds = settings.fabric_gate.poll
     if timeout_seconds is None:
-        timeout_seconds = settings.EDGE_CERT_VALIDITY_TIMEOUT_SECONDS
+        timeout_seconds = settings.fabric_gate.timeout
     out.step(
         "Waiting for edge to join the SD-WAN fabric per vManage "
         f"(poll {poll_interval_seconds}s, timeout {timeout_seconds}s)..."
@@ -505,9 +505,9 @@ def _activate_edge_license(
     max_attempts: int = None,
 ) -> bool:
     if retry_wait_seconds is None:
-        retry_wait_seconds = settings.EDGE_PAYG_ACTIVATE_RETRY_WAIT_SECONDS
+        retry_wait_seconds = settings.payg_activate.wait
     if max_attempts is None:
-        max_attempts = settings.EDGE_PAYG_ACTIVATE_MAX_ATTEMPTS
+        max_attempts = settings.payg_activate.max_attempts
     chassis = license_entry.get("chassis")
     token = license_entry.get("token")
     if not chassis or not token:
@@ -539,8 +539,8 @@ def _activate_edge_license(
                 out.step("Re-installing root certificate before retrying activation...")
                 _install_root_cert(net_connect)
                 out.spinner_wait(
-                    f"Waiting {settings.WAIT_BEFORE_ACTIVATING_EDGE_SECONDS}s before retrying activation...",
-                    settings.WAIT_BEFORE_ACTIVATING_EDGE_SECONDS,
+                    f"Waiting {settings.waits.before_edge_activation}s before retrying activation...",
+                    settings.waits.before_edge_activation,
                 )
                 continue
             out.error("PAYG activation failed after retries.")
@@ -613,9 +613,9 @@ def _run_edge_automation_body(
             initial_config=config.initial_config,
             config_mode_command="config-transaction",
             commit_command="commit",
-            read_timeout=settings.NETMIKO_INCREASED_READ_TIMEOUT_SECONDS,
-            config_ready_timeout=settings.EDGE_CONFIG_READY_TIMEOUT_SECONDS,
-            config_ready_poll_interval=settings.EDGE_CONFIG_READY_POLL_INTERVAL_SECONDS,
+            read_timeout=settings.waits.netmiko_read_timeout,
+            config_ready_timeout=settings.config_ready.timeout,
+            config_ready_poll_interval=settings.config_ready.poll,
         )
     else:
         # Try configured password first, then default if it fails
@@ -653,7 +653,7 @@ def _run_edge_automation_body(
             config_file,
             config_mode_command="config-transaction",
             commit_command="commit",
-            read_timeout=settings.NETMIKO_INCREASED_READ_TIMEOUT_SECONDS,
+            read_timeout=settings.waits.netmiko_read_timeout,
         )
 
     if extra_routing:
@@ -675,7 +675,7 @@ def _run_edge_automation_body(
             extra_routing_config,
             config_mode_command="config-transaction",
             commit_command="commit",
-            read_timeout=settings.NETMIKO_INCREASED_READ_TIMEOUT_SECONDS,
+            read_timeout=settings.waits.netmiko_read_timeout,
         )
 
     if cert:
@@ -750,8 +750,8 @@ def _run_edge_automation_body(
                 raise SystemExit(1)
             out.spinner_wait(
                 "Holding lock to let vManage pick up this CSR before the next edge "
-                f"activates ({settings.EDGE_ACTIVATION_GAP_SECONDS}s)...",
-                settings.EDGE_ACTIVATION_GAP_SECONDS,
+                f"activates ({settings.waits.activation_gap}s)...",
+                settings.waits.activation_gap,
             )
             _log_chassis_authorization_snapshot(
                 settings.manager, license_entry["chassis"], "post-activate-gap"
@@ -769,7 +769,7 @@ def _run_edge_automation_body(
                 settings.manager,
                 config,
                 license_entry["chassis"],
-                settings.EDGE_CERT_VALIDITY_MAX_ATTEMPTS,
+                settings.fabric_gate.max_attempts,
                 device_type,
             ):
                 out.error("Edge did not join the fabric after PAYG activation.")
@@ -976,8 +976,8 @@ def _wait_for_edges_in_fabric(
         out.info("Skipping shared fabric-membership gate for a single edge target.")
         return []
 
-    poll_interval_seconds = settings.EDGE_CERT_VALIDITY_POLL_INTERVAL_SECONDS
-    timeout_seconds = settings.EDGE_CERT_VALIDITY_TIMEOUT_SECONDS
+    poll_interval_seconds = settings.fabric_gate.poll
+    timeout_seconds = settings.fabric_gate.timeout
     out.step(
         "Waiting for all targeted edges to join the SD-WAN fabric per vManage "
         f"(poll {poll_interval_seconds}s, timeout {timeout_seconds}s)..."
@@ -1076,8 +1076,8 @@ def _wait_for_edges_bfd_converged(
         out.info("Skipping BFD convergence gate for a single edge target.")
         return []
 
-    poll_interval_seconds = settings.EDGE_BFD_CONVERGENCE_POLL_INTERVAL_SECONDS
-    timeout_seconds = settings.EDGE_BFD_CONVERGENCE_TIMEOUT_SECONDS
+    poll_interval_seconds = settings.bfd_gate.poll
+    timeout_seconds = settings.bfd_gate.timeout
     out.step(
         "Waiting for all targeted edges to report BFD sessions in vManage "
         f"(poll {poll_interval_seconds}s, timeout {timeout_seconds}s)..."
@@ -1125,7 +1125,7 @@ def run_edges_automation(
     }
 
     use_bfd_convergence_gate = cert and len(edge_configs) > 1
-    max_attempts = settings.EDGE_BFD_CONVERGENCE_MAX_ATTEMPTS if cert else 1
+    max_attempts = settings.bfd_gate.max_attempts if cert else 1
     phase_edge_configs = edge_configs
     phase_initial_config = initial_config
     phase_config_file = config_file
