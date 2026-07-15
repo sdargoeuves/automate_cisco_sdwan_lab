@@ -5,6 +5,7 @@ Edge (vEdge/C8000V) automation workflow:
 - Copy root cert via SCP, install it, and activate using PAYG token.
 """
 
+import contextlib
 import re
 import threading
 import time
@@ -408,9 +409,7 @@ def _log_chassis_authorization_snapshot(
         )
         return
     devices = (response.get("data") or []) if response else []
-    entry = next(
-        (d for d in devices if d.get("chasisNumber") == chassis_id), None
-    )
+    entry = next((d for d in devices if d.get("chasisNumber") == chassis_id), None)
     if entry is None:
         out.log_only(
             f"Chassis snapshot ({label}): {chassis_id} NOT PRESENT in vManage "
@@ -421,9 +420,7 @@ def _log_chassis_authorization_snapshot(
         return
     summary = {k: entry.get(k) for k in _CHASSIS_SNAPSHOT_KEYS if k in entry}
     out.log_only(f"Chassis snapshot ({label}) for {chassis_id}: {summary}")
-    out.log_only(
-        f"Chassis snapshot ({label}) full record: {entry}", level="debug"
-    )
+    out.log_only(f"Chassis snapshot ({label}) full record: {entry}", level="debug")
 
 
 def _try_install_device_cert(
@@ -712,7 +709,9 @@ def _run_edge_automation_body(
         # so only install it once per edge per run — retries just need a fresh
         # PAYG chassis + activation, not another ~2 min SCP + install + poll.
         if label in _ROOT_CERT_INSTALLED:
-            out.info("Root CA chain already installed this run; skipping SCP + install.")
+            out.info(
+                "Root CA chain already installed this run; skipping SCP + install."
+            )
         else:
             if not scp_copy_file(
                 net_connect,
@@ -883,8 +882,7 @@ def _log_edge_control_conns(
     stamp lets us line the flap up against the vManage cert-state transitions.
     """
     health = {
-        item.get("system_ip"): item
-        for item in get_edge_health_items(settings.manager)
+        item.get("system_ip"): item for item in get_edge_health_items(settings.manager)
     }
     elapsed = int(time.time() - start)
     for edge_config in edge_configs:
@@ -911,9 +909,7 @@ def _dump_gate_failure_diagnostics(
     looking at *why* the attempt failed, since it only reads vManage. This is
     best-effort and never raises: a failed reconnect just logs a note.
     """
-    config_by_name = {
-        edge_name_by_id.get(id(cfg), "edge"): cfg for cfg in edge_configs
-    }
+    config_by_name = {edge_name_by_id.get(id(cfg), "edge"): cfg for cfg in edge_configs}
     for name in failed_edges:
         edge_config = config_by_name.get(name)
         if not edge_config:
@@ -948,15 +944,11 @@ def _dump_gate_failure_diagnostics(
                     net_connect, chassis_id, "certinstallfailed"
                 )
             except Exception as exc:  # pragma: no cover - diagnostic path
-                out.log_only(
-                    f"Gate diagnostics capture failed: {exc}", level="warning"
-                )
+                out.log_only(f"Gate diagnostics capture failed: {exc}", level="warning")
             finally:
                 if net_connect:
-                    try:
+                    with contextlib.suppress(Exception):  # pragma: no cover - defensive
                         net_connect.disconnect()
-                    except Exception:  # pragma: no cover - defensive
-                        pass
 
 
 def _wait_for_edges_in_fabric(
@@ -1049,7 +1041,8 @@ def _wait_for_edges_in_fabric(
                     # identity (mirrors the BFD-convergence handling below).
                     out.error(
                         "Cert is installed but the control plane did not converge "
-                        "for: " + ", ".join(installed_stuck)
+                        "for: "
+                        + ", ".join(installed_stuck)
                         + ". This is a data-plane/TLOC issue, not a certificate "
                         "issue; not regenerating."
                     )

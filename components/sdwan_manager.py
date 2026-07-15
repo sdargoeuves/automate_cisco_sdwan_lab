@@ -188,9 +188,7 @@ def run_certificate_automation(net_connect, config: settings.ManagerConfig):
 
     csr_found = False
     poll_interval_seconds = settings.csr_file.poll
-    max_attempts = max(
-        1, int(settings.csr_file.timeout / poll_interval_seconds)
-    )
+    max_attempts = max(1, int(settings.csr_file.timeout / poll_interval_seconds))
     for attempt in range(max_attempts):
         try:
             check_result = run_vshell_cmd(

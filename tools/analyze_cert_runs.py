@@ -40,7 +40,9 @@ RE_SNAP_ABSENT = re.compile(
     rf"Chassis snapshot \((pre-activate|post-activate-gap)\): {CHASSIS} NOT PRESENT"
 )
 RE_ACTIVATE = re.compile(rf"Activating PAYG license for chassis {CHASSIS} \(attempt")
-RE_STATE_MULTI = re.compile(rf"vManage cert state for latest chassis {CHASSIS}: '(\w+)'")
+RE_STATE_MULTI = re.compile(
+    rf"vManage cert state for latest chassis {CHASSIS}: '(\w+)'"
+)
 RE_STATE_SINGLE = re.compile(r"vManage chassis cert state: '(\w+)'")
 # Control-conn trace. Two log-format eras (both may appear in one log):
 #   OLD: "[edge] control connections up: N"  /  "edge: control connections up: N"
@@ -73,8 +75,16 @@ FAIL_STATES = {"certinstallfailed"}
 
 class Chassis:
     __slots__ = (
-        "cid", "edge", "activate_ts", "pre", "post", "states", "joined_ts",
-        "conns", "bfds", "license_mismatch",
+        "cid",
+        "edge",
+        "activate_ts",
+        "pre",
+        "post",
+        "states",
+        "joined_ts",
+        "conns",
+        "bfds",
+        "license_mismatch",
     )
 
     def __init__(self, cid: str):
@@ -133,7 +143,7 @@ class Chassis:
     def flapped(self) -> bool:
         """True if control_connections_up ever dropped after rising — a flap."""
         seq = [n for _, n in self.conns if n is not None]
-        return any(b < a for a, b in zip(seq, seq[1:]))
+        return any(b < a for a, b in zip(seq, seq[1:], strict=False))
 
     def short(self) -> str:
         return self.cid.split("-")[2] if self.cid.startswith("C8K-PAYG-") else self.cid
@@ -183,11 +193,13 @@ class Chassis:
 
 def _secs(a: str, b: str) -> int:
     """Whole seconds between two 'YYYY-MM-DD HH:MM:SS' strings (b - a)."""
+
     def to_s(t: str) -> int:
         d, hms = t.split(" ")
         y, mo, dy = map(int, d.split("-"))
         h, mi, s = map(int, hms.split(":"))
         return ((((y * 12 + mo) * 31 + dy) * 24 + h) * 60 + mi) * 60 + s
+
     return to_s(b) - to_s(a)
 
 
@@ -304,7 +316,7 @@ def parse(lines: list[str]):
 
 def report(chassis: dict[str, Chassis], serntpres: list[str]) -> None:
     rows = [c for c in chassis.values() if c.activate_ts or c.states]
-    rows.sort(key=lambda c: (c.activate_ts or c.states[0][0] if c.states else ""))
+    rows.sort(key=lambda c: c.activate_ts or c.states[0][0] if c.states else "")
 
     header = (
         f"{'CHASSIS':<8} {'EDGE':<9} {'OUTCOME':<8} {'PATH':<22} "
@@ -326,8 +338,10 @@ def report(chassis: dict[str, Chassis], serntpres: list[str]) -> None:
     succ = [c for c in rows if c.outcome() == "SUCCESS"]
     fail = [c for c in rows if c.outcome() == "FAIL"]
     print()
-    print(f"Totals: {len(succ)} success, {len(fail)} fail, "
-          f"{len(rows) - len(succ) - len(fail)} in-progress/unknown")
+    print(
+        f"Totals: {len(succ)} success, {len(fail)} fail, "
+        f"{len(rows) - len(succ) - len(fail)} in-progress/unknown"
+    )
 
     # Per-edge onboarding: how many chassis each edge burned before joining, and
     # the wall-clock from its first activation to fabric join. The chassis count
@@ -418,7 +432,7 @@ def report(chassis: dict[str, Chassis], serntpres: list[str]) -> None:
             return
         alone = sum(1 for v in vals if v == 0)
         print(
-            f"  {label:<8} peers-in-pipeline avg={sum(vals)/len(vals):.1f} "
+            f"  {label:<8} peers-in-pipeline avg={sum(vals) / len(vals):.1f} "
             f"max={max(vals)} | signed ALONE (0 peers): {alone}/{len(vals)}"
         )
 
@@ -443,13 +457,11 @@ def report(chassis: dict[str, Chassis], serntpres: list[str]) -> None:
             crowd_f += is_fail
     if solo_t and crowd_t:
         print(
-            f"  fail rate:  ALONE {solo_f}/{solo_t} ({100*solo_f//solo_t}%)  "
-            f"vs  CROWDED {crowd_f}/{crowd_t} ({100*crowd_f//crowd_t}%)  "
+            f"  fail rate:  ALONE {solo_f}/{solo_t} ({100 * solo_f // solo_t}%)  "
+            f"vs  CROWDED {crowd_f}/{crowd_t} ({100 * crowd_f // crowd_t}%)  "
             "→ serialization helps only by this gap; the ALONE rate is the floor."
         )
-    lone_fail = [
-        c for c in fail if (ov := overlaps(c)) is not None and ov == 0
-    ]
+    lone_fail = [c for c in fail if (ov := overlaps(c)) is not None and ov == 0]
     if lone_fail:
         print(
             f"  ⚠ {len(lone_fail)} chassis FAILED while ALONE in the pipeline "

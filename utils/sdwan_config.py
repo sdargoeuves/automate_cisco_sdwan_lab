@@ -103,17 +103,17 @@ UPDATED_PASSWORD: str = None
 PORT: str = None
 EDGE_DEVICE_TYPE: str = None
 # Grouped timing/retry settings (see the spec types above).
-root_ca_install: PollSpec = None      # root CA chain install poll
-fabric_gate: PollSpec = None          # control-connection convergence gate
-bfd_gate: PollSpec = None             # BFD convergence gate (poll/timeout only)
-config_ready: PollSpec = None         # edge config-mode readiness probe
-controller_reboot: PollSpec = None    # vBond/vSmart post-reboot re-sync
-csr_file: PollSpec = None             # manager CSR file appearance
-payg_activate: RetrySpec = None       # edge PAYG vedge_cloud activate retry
-csr_generation: RetrySpec = None      # manager CSR generation API retry
-commit_retry: CommitRetry = None      # netmiko commit retry
-connect_retry: ConnectRetry = None    # netmiko initial-connect retry
-waits: Waits = None                   # fixed delays + standalone timeouts
+root_ca_install: PollSpec = None  # root CA chain install poll
+fabric_gate: PollSpec = None  # control-connection convergence gate
+bfd_gate: PollSpec = None  # BFD convergence gate (poll/timeout only)
+config_ready: PollSpec = None  # edge config-mode readiness probe
+controller_reboot: PollSpec = None  # vBond/vSmart post-reboot re-sync
+csr_file: PollSpec = None  # manager CSR file appearance
+payg_activate: RetrySpec = None  # edge PAYG vedge_cloud activate retry
+csr_generation: RetrySpec = None  # manager CSR generation API retry
+commit_retry: CommitRetry = None  # netmiko commit retry
+connect_retry: ConnectRetry = None  # netmiko initial-connect retry
+waits: Waits = None  # fixed delays + standalone timeouts
 # How many times the multi-edge deploy regenerates a fresh chassis and re-tries
 # onboarding a still-down edge before handing it off to `edges failed --cert`.
 edge_retry_budget: int = None
@@ -524,9 +524,7 @@ def load(variables_path=None) -> None:
     connect_retry = ConnectRetry(
         wait=int(_timing.get("netmiko_connect_retry_wait_seconds", 120)),
         max_seconds=int(_timing.get("netmiko_connect_retry_max_seconds", 900)),
-        lockout=int(
-            _timing.get("netmiko_connect_lockout_retry_interval_seconds", 180)
-        ),
+        lockout=int(_timing.get("netmiko_connect_lockout_retry_interval_seconds", 180)),
     )
     waits = Waits(
         before_validator=int(
