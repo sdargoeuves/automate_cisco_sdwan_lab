@@ -43,44 +43,80 @@ def _optional_value(device: dict, key: str, default):
     return device.get(key, default)
 
 
+# Grouped timing/retry settings — small value types so the code reads as
+# `settings.fabric_gate.timeout` etc. instead of a wall of flat globals. Each is
+# populated by load() from the same `timing:` yaml keys as before.
+@dataclass(frozen=True)
+class PollSpec:
+    """A poll-until-done loop: check every ``poll``s, give up after ``timeout``s."""
+
+    poll: int
+    timeout: int
+    max_attempts: int | None = None
+
+
+@dataclass(frozen=True)
+class RetrySpec:
+    """An attempt/backoff retry loop."""
+
+    max_attempts: int
+    wait: int
+
+
+@dataclass(frozen=True)
+class CommitRetry:
+    """Netmiko commit: retry the commit and how long to read for it."""
+
+    max_attempts: int
+    wait: int
+    read_timeout: int
+
+
+@dataclass(frozen=True)
+class ConnectRetry:
+    """Netmiko initial-connect retry (time-bounded, lockout-aware)."""
+
+    wait: int
+    max_seconds: int
+    lockout: int
+
+
+@dataclass(frozen=True)
+class Waits:
+    """Fixed one-shot delays and standalone timeouts (seconds)."""
+
+    before_validator: int
+    before_controller: int
+    before_edge_activation: int
+    after_payg_license: int
+    csr_generation: int
+    activation_gap: int
+    edge_stagger: float
+    netmiko_read_timeout: int
+
+
 # Module-level variables — populated by load()
 ORG: str = None
 USERNAME: str = None
 DEFAULT_PASSWORD: str = None
 UPDATED_PASSWORD: str = None
 PORT: str = None
-WAIT_BEFORE_AUTOMATING_CONTROLLER_SECONDS: int = None
-WAIT_BEFORE_AUTOMATING_VALIDATOR_SECONDS: int = None
-CONTROLLER_POST_REBOOT_POLL_INTERVAL_SECONDS: int = None
-CONTROLLER_POST_REBOOT_TIMEOUT_SECONDS: int = None
-WAIT_CSR_GENERATION_SECONDS: int = None
-WAIT_BEFORE_ACTIVATING_EDGE_SECONDS: int = None
-WAIT_AFTER_GENERATING_PAYG_LICENSE_SECONDS: int = None
-EDGE_CERT_POLL_INTERVAL_SECONDS: int = None
-EDGE_CERT_POLL_TIMEOUT_SECONDS: int = None
-EDGE_PAYG_ACTIVATE_MAX_ATTEMPTS: int = None
-EDGE_PAYG_ACTIVATE_RETRY_WAIT_SECONDS: int = None
-EDGE_ACTIVATION_GAP_SECONDS: int = None
-EDGE_CERT_VALIDITY_POLL_INTERVAL_SECONDS: int = None
-EDGE_CERT_VALIDITY_TIMEOUT_SECONDS: int = None
-EDGE_CERT_VALIDITY_MAX_ATTEMPTS: int = None
-EDGE_BFD_CONVERGENCE_POLL_INTERVAL_SECONDS: int = None
-EDGE_BFD_CONVERGENCE_TIMEOUT_SECONDS: int = None
-EDGE_BFD_CONVERGENCE_MAX_ATTEMPTS: int = None
-NETMIKO_INCREASED_READ_TIMEOUT_SECONDS: int = None
-CSR_FILE_TIMEOUT_SECONDS: int = None
-NETMIKO_CONFIG_RETRY_ATTEMPTS: int = None
-NETMIKO_CONFIG_RETRY_WAIT_SECONDS: int = None
-NETMIKO_COMMIT_READ_TIMEOUT_SECONDS: int = None
-NETMIKO_COMMIT_RETRY_ATTEMPTS: int = None
-NETMIKO_COMMIT_RETRY_WAIT_SECONDS: int = None
-NETMIKO_CONNECT_RETRY_WAIT_SECONDS: int = None
-NETMIKO_CONNECT_RETRY_MAX_SECONDS: int = None
-NETMIKO_CONNECT_LOCKOUT_RETRY_INTERVAL_SECONDS: int = None
-CSR_GENERATION_MAX_ATTEMPTS: int = None
-CSR_GENERATION_RETRY_WAIT_SECONDS: int = None
-CSR_FILE_POLL_INTERVAL_SECONDS: int = None
-EDGE_STAGGER_SECONDS: float = None
+EDGE_DEVICE_TYPE: str = None
+# Grouped timing/retry settings (see the spec types above).
+root_ca_install: PollSpec = None  # root CA chain install poll
+fabric_gate: PollSpec = None  # control-connection convergence gate
+bfd_gate: PollSpec = None  # BFD convergence gate (poll/timeout only)
+config_ready: PollSpec = None  # edge config-mode readiness probe
+controller_reboot: PollSpec = None  # vBond/vSmart post-reboot re-sync
+csr_file: PollSpec = None  # manager CSR file appearance
+payg_activate: RetrySpec = None  # edge PAYG vedge_cloud activate retry
+csr_generation: RetrySpec = None  # manager CSR generation API retry
+commit_retry: CommitRetry = None  # netmiko commit retry
+connect_retry: ConnectRetry = None  # netmiko initial-connect retry
+waits: Waits = None  # fixed delays + standalone timeouts
+# How many times the multi-edge deploy regenerates a fresh chassis and re-tries
+# onboarding a still-down edge before handing it off to `edges failed --cert`.
+edge_retry_budget: int = None
 RSA_KEY: str = None
 ROOT_CERT: str = None
 SIGNED_CERT: str = None
@@ -91,7 +127,6 @@ VALIDATOR_DEVICE: dict = None
 CONTROLLER_DEVICE: dict = None
 EDGE_GROUP: dict = None
 EDGE_DEVICES: dict = None
-EDGE_NAMES: tuple = None
 MANAGER_INITIAL_CONFIG: str = None
 VALIDATOR_INITIAL_CONFIG: str = None
 CONTROLLER_INITIAL_CONFIG: str = None
@@ -415,32 +450,13 @@ def load(variables_path=None) -> None:
             ``sdwan_variables.gen.yml`` next to the project root.
     """
     global _VARIABLES_PATH, _DEVICES
-    global ORG, USERNAME, DEFAULT_PASSWORD, UPDATED_PASSWORD, PORT
-    global \
-        WAIT_BEFORE_AUTOMATING_CONTROLLER_SECONDS, \
-        WAIT_BEFORE_AUTOMATING_VALIDATOR_SECONDS
-    global \
-        CONTROLLER_POST_REBOOT_POLL_INTERVAL_SECONDS, \
-        CONTROLLER_POST_REBOOT_TIMEOUT_SECONDS
-    global WAIT_CSR_GENERATION_SECONDS, WAIT_BEFORE_ACTIVATING_EDGE_SECONDS
-    global WAIT_AFTER_GENERATING_PAYG_LICENSE_SECONDS, EDGE_CERT_POLL_INTERVAL_SECONDS
-    global EDGE_CERT_POLL_TIMEOUT_SECONDS, NETMIKO_INCREASED_READ_TIMEOUT_SECONDS
-    global EDGE_PAYG_ACTIVATE_MAX_ATTEMPTS, EDGE_PAYG_ACTIVATE_RETRY_WAIT_SECONDS
-    global EDGE_ACTIVATION_GAP_SECONDS
-    global EDGE_CERT_VALIDITY_POLL_INTERVAL_SECONDS, EDGE_CERT_VALIDITY_TIMEOUT_SECONDS
-    global EDGE_CERT_VALIDITY_MAX_ATTEMPTS
-    global EDGE_BFD_CONVERGENCE_POLL_INTERVAL_SECONDS
-    global EDGE_BFD_CONVERGENCE_TIMEOUT_SECONDS, EDGE_BFD_CONVERGENCE_MAX_ATTEMPTS
-    global CSR_FILE_TIMEOUT_SECONDS, NETMIKO_CONFIG_RETRY_ATTEMPTS
-    global NETMIKO_CONFIG_RETRY_WAIT_SECONDS, NETMIKO_COMMIT_READ_TIMEOUT_SECONDS
-    global NETMIKO_COMMIT_RETRY_ATTEMPTS, NETMIKO_COMMIT_RETRY_WAIT_SECONDS
-    global NETMIKO_CONNECT_RETRY_WAIT_SECONDS, NETMIKO_CONNECT_RETRY_MAX_SECONDS
-    global NETMIKO_CONNECT_LOCKOUT_RETRY_INTERVAL_SECONDS
-    global CSR_GENERATION_MAX_ATTEMPTS, CSR_GENERATION_RETRY_WAIT_SECONDS
-    global CSR_FILE_POLL_INTERVAL_SECONDS, EDGE_STAGGER_SECONDS
+    global ORG, USERNAME, DEFAULT_PASSWORD, UPDATED_PASSWORD, PORT, EDGE_DEVICE_TYPE
+    global root_ca_install, fabric_gate, bfd_gate, config_ready, controller_reboot
+    global csr_file, payg_activate, csr_generation, commit_retry, connect_retry, waits
+    global edge_retry_budget
     global RSA_KEY, ROOT_CERT, SIGNED_CERT, VALIDATOR_IP, CONTROLLER_IP
     global MANAGER_DEVICE, VALIDATOR_DEVICE, CONTROLLER_DEVICE
-    global EDGE_GROUP, EDGE_DEVICES, EDGE_NAMES
+    global EDGE_GROUP, EDGE_DEVICES
     global MANAGER_INITIAL_CONFIG, VALIDATOR_INITIAL_CONFIG, CONTROLLER_INITIAL_CONFIG
     global EDGE_INITIAL_CONFIGS, EDGE_EXTRA_ROUTING_CONFIGS
     global manager, controller, validator, EDGES
@@ -460,88 +476,76 @@ def load(variables_path=None) -> None:
     DEFAULT_PASSWORD = _shared.get("default_password", "admin")
     UPDATED_PASSWORD = _shared.get("updated_password", "admin@123")
     PORT = str(_shared.get("port", "443"))
-    WAIT_BEFORE_AUTOMATING_CONTROLLER_SECONDS = int(
-        _timing.get("wait_before_automating_controller_seconds", 120)
+    # cEdges run the Viptela config model (config-transaction / commit) in
+    # SD-WAN controller mode, so they use the same Netmiko driver as the other
+    # SD-WAN components. Overridable in case a device needs cisco_xe/cisco_ios.
+    EDGE_DEVICE_TYPE = str(_shared.get("edge_device_type", "cisco_viptela"))
+    controller_reboot = PollSpec(
+        poll=int(_timing.get("controller_post_reboot_poll_interval_seconds", 30)),
+        timeout=int(_timing.get("controller_post_reboot_timeout_seconds", 600)),
     )
-    WAIT_BEFORE_AUTOMATING_VALIDATOR_SECONDS = int(
-        _timing.get("wait_before_automating_validator_seconds", 60)
+    root_ca_install = PollSpec(
+        poll=int(_timing.get("edge_cert_poll_interval_seconds", 10)),
+        timeout=int(_timing.get("edge_cert_poll_timeout_seconds", 180)),
     )
-    CONTROLLER_POST_REBOOT_POLL_INTERVAL_SECONDS = int(
-        _timing.get("controller_post_reboot_poll_interval_seconds", 30)
+    fabric_gate = PollSpec(
+        poll=int(_timing.get("edge_cert_validity_poll_interval_seconds", 15)),
+        timeout=int(_timing.get("edge_cert_validity_timeout_seconds", 600)),
+        max_attempts=int(_timing.get("edge_cert_validity_max_attempts", 2)),
     )
-    CONTROLLER_POST_REBOOT_TIMEOUT_SECONDS = int(
-        _timing.get("controller_post_reboot_timeout_seconds", 600)
+    bfd_gate = PollSpec(
+        poll=int(_timing.get("edge_bfd_convergence_poll_interval_seconds", 30)),
+        timeout=int(_timing.get("edge_bfd_convergence_timeout_seconds", 300)),
     )
-    WAIT_CSR_GENERATION_SECONDS = int(_timing.get("wait_csr_generation_seconds", 30))
-    WAIT_BEFORE_ACTIVATING_EDGE_SECONDS = int(
-        _timing.get("wait_before_activating_edge_seconds", 60)
+    # Per-edge cert-retry budget for the multi-edge deploy: how many fresh-chassis
+    # attempts an edge gets before it's handed off to `edges failed --cert`.
+    edge_retry_budget = int(_timing.get("edge_cert_retry_max_attempts", 4))
+    config_ready = PollSpec(
+        poll=int(_timing.get("edge_config_ready_poll_interval_seconds", 20)),
+        timeout=int(_timing.get("edge_config_ready_timeout_seconds", 600)),
     )
-    WAIT_AFTER_GENERATING_PAYG_LICENSE_SECONDS = int(
-        _timing.get("wait_after_generating_payg_license_seconds", 30)
+    csr_file = PollSpec(
+        poll=int(_timing.get("csr_file_poll_interval_seconds", 5)),
+        timeout=int(_timing.get("csr_file_timeout_seconds", 60)),
     )
-    EDGE_CERT_POLL_INTERVAL_SECONDS = int(
-        _timing.get("edge_cert_poll_interval_seconds", 10)
+    payg_activate = RetrySpec(
+        max_attempts=int(_timing.get("edge_payg_activate_max_attempts", 4)),
+        wait=int(_timing.get("edge_payg_activate_retry_wait_seconds", 60)),
     )
-    EDGE_CERT_POLL_TIMEOUT_SECONDS = int(
-        _timing.get("edge_cert_poll_timeout_seconds", 180)
+    csr_generation = RetrySpec(
+        max_attempts=int(_timing.get("csr_generation_max_attempts", 3)),
+        wait=int(_timing.get("csr_generation_retry_wait_seconds", 5)),
     )
-    EDGE_PAYG_ACTIVATE_MAX_ATTEMPTS = int(
-        _timing.get("edge_payg_activate_max_attempts", 4)
+    commit_retry = CommitRetry(
+        max_attempts=int(_timing.get("netmiko_commit_retry_attempts", 2)),
+        wait=int(_timing.get("netmiko_commit_retry_wait_seconds", 30)),
+        read_timeout=int(_timing.get("netmiko_commit_read_timeout_seconds", 120)),
     )
-    EDGE_PAYG_ACTIVATE_RETRY_WAIT_SECONDS = int(
-        _timing.get("edge_payg_activate_retry_wait_seconds", 60)
+    connect_retry = ConnectRetry(
+        wait=int(_timing.get("netmiko_connect_retry_wait_seconds", 120)),
+        max_seconds=int(_timing.get("netmiko_connect_retry_max_seconds", 900)),
+        lockout=int(_timing.get("netmiko_connect_lockout_retry_interval_seconds", 180)),
     )
-    EDGE_ACTIVATION_GAP_SECONDS = int(_timing.get("edge_activation_gap_seconds", 30))
-    EDGE_CERT_VALIDITY_POLL_INTERVAL_SECONDS = int(
-        _timing.get("edge_cert_validity_poll_interval_seconds", 15)
+    waits = Waits(
+        before_validator=int(
+            _timing.get("wait_before_automating_validator_seconds", 60)
+        ),
+        before_controller=int(
+            _timing.get("wait_before_automating_controller_seconds", 120)
+        ),
+        before_edge_activation=int(
+            _timing.get("wait_before_activating_edge_seconds", 60)
+        ),
+        after_payg_license=int(
+            _timing.get("wait_after_generating_payg_license_seconds", 90)
+        ),
+        csr_generation=int(_timing.get("wait_csr_generation_seconds", 30)),
+        activation_gap=int(_timing.get("edge_activation_gap_seconds", 30)),
+        edge_stagger=float(_timing.get("edge_stagger_seconds", 2.0)),
+        netmiko_read_timeout=int(
+            _timing.get("netmiko_increased_read_timeout_seconds", 30)
+        ),
     )
-    EDGE_CERT_VALIDITY_TIMEOUT_SECONDS = int(
-        _timing.get("edge_cert_validity_timeout_seconds", 600)
-    )
-    EDGE_CERT_VALIDITY_MAX_ATTEMPTS = int(
-        _timing.get("edge_cert_validity_max_attempts", 2)
-    )
-    EDGE_BFD_CONVERGENCE_POLL_INTERVAL_SECONDS = int(
-        _timing.get("edge_bfd_convergence_poll_interval_seconds", 30)
-    )
-    EDGE_BFD_CONVERGENCE_TIMEOUT_SECONDS = int(
-        _timing.get("edge_bfd_convergence_timeout_seconds", 300)
-    )
-    EDGE_BFD_CONVERGENCE_MAX_ATTEMPTS = int(
-        _timing.get("edge_bfd_convergence_max_attempts", 3)
-    )
-    NETMIKO_INCREASED_READ_TIMEOUT_SECONDS = int(
-        _timing.get("netmiko_increased_read_timeout_seconds", 30)
-    )
-    CSR_FILE_TIMEOUT_SECONDS = int(_timing.get("csr_file_timeout_seconds", 60))
-    NETMIKO_CONFIG_RETRY_ATTEMPTS = int(_timing.get("netmiko_config_retry_attempts", 2))
-    NETMIKO_CONFIG_RETRY_WAIT_SECONDS = int(
-        _timing.get("netmiko_config_retry_wait_seconds", 10)
-    )
-    NETMIKO_COMMIT_READ_TIMEOUT_SECONDS = int(
-        _timing.get("netmiko_commit_read_timeout_seconds", 120)
-    )
-    NETMIKO_COMMIT_RETRY_ATTEMPTS = int(_timing.get("netmiko_commit_retry_attempts", 2))
-    NETMIKO_COMMIT_RETRY_WAIT_SECONDS = int(
-        _timing.get("netmiko_commit_retry_wait_seconds", 30)
-    )
-    NETMIKO_CONNECT_RETRY_WAIT_SECONDS = int(
-        _timing.get("netmiko_connect_retry_wait_seconds", 120)
-    )
-    NETMIKO_CONNECT_RETRY_MAX_SECONDS = int(
-        _timing.get("netmiko_connect_retry_max_seconds", 900)
-    )
-    NETMIKO_CONNECT_LOCKOUT_RETRY_INTERVAL_SECONDS = int(
-        _timing.get("netmiko_connect_lockout_retry_interval_seconds", 180)
-    )
-    CSR_GENERATION_MAX_ATTEMPTS = int(_timing.get("csr_generation_max_attempts", 3))
-    CSR_GENERATION_RETRY_WAIT_SECONDS = int(
-        _timing.get("csr_generation_retry_wait_seconds", 5)
-    )
-    CSR_FILE_POLL_INTERVAL_SECONDS = int(
-        _timing.get("csr_file_poll_interval_seconds", 5)
-    )
-    EDGE_STAGGER_SECONDS = float(_timing.get("edge_stagger_seconds", 2.0))
 
     RSA_KEY = _certs.get("rsa_key", "SDWAN.key")
     ROOT_CERT = _certs.get("root_cert", "SDWAN.pem")
@@ -571,8 +575,6 @@ def load(variables_path=None) -> None:
 
     if not EDGE_DEVICES:
         raise KeyError(f"Missing edge definitions in {_VARIABLES_PATH}.")
-
-    EDGE_NAMES = tuple(EDGE_DEVICES.keys())
 
     MANAGER_INITIAL_CONFIG = build_manager_initial_config(
         system_ip=_require_value(MANAGER_DEVICE, "system_ip"),

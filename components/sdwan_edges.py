@@ -5,6 +5,7 @@ Edge (vEdge/C8000V) automation workflow:
 - Copy root cert via SCP, install it, and activate using PAYG token.
 """
 
+import contextlib
 import re
 import threading
 import time
@@ -36,12 +37,21 @@ _ACTIVATION_LOCK = threading.Lock()
 _LATEST_CHASSIS_BY_EDGE: dict[str, str] = {}
 _LATEST_CHASSIS_LOCK = threading.Lock()
 _LAST_REPORTED_CERT_STATE_BY_EDGE: dict[str, str] = {}
+# Last control_connections_up value logged per edge, so we only emit the
+# in-window control-plane trace on change (a flap shows up as a transition).
+_LAST_REPORTED_CONNS_BY_EDGE: dict[str, int | None] = {}
+# Edges whose SDWAN root CA chain we've already installed this process. The root
+# chain is per-edge and persists across chassis regenerations, so we install it
+# once per edge instead of re-doing SCP + install + poll on every cert retry.
+_ROOT_CERT_INSTALLED: set[str] = set()
 
 
 def _record_latest_edge_chassis(edge_name: str, chassis_id: str) -> None:
     with _LATEST_CHASSIS_LOCK:
         _LATEST_CHASSIS_BY_EDGE[edge_name] = chassis_id
         _LAST_REPORTED_CERT_STATE_BY_EDGE.pop(edge_name, None)
+        # Reset the conns trace so each new chassis attempt starts fresh.
+        _LAST_REPORTED_CONNS_BY_EDGE.pop(edge_name, None)
 
 
 def _get_latest_edge_chassis(edge_name: str) -> str | None:
@@ -66,7 +76,7 @@ def generate_payg_licenses(
     wait_seconds: int = None,
 ) -> list[dict]:
     if wait_seconds is None:
-        wait_seconds = settings.WAIT_AFTER_GENERATING_PAYG_LICENSE_SECONDS
+        wait_seconds = settings.waits.after_payg_license
     out.header("EDGE - Generate PAYG Licenses")
     try:
         response = sdk_call_json(
@@ -134,9 +144,9 @@ def _wait_for_edge_cert(
     timeout_seconds: int = None,
 ) -> bool:
     if poll_interval_seconds is None:
-        poll_interval_seconds = settings.EDGE_CERT_POLL_INTERVAL_SECONDS
+        poll_interval_seconds = settings.root_ca_install.poll
     if timeout_seconds is None:
-        timeout_seconds = settings.EDGE_CERT_POLL_TIMEOUT_SECONDS
+        timeout_seconds = settings.root_ca_install.timeout
     out.step(
         "Waiting for root CA chain to be installed "
         f"(poll {poll_interval_seconds}s, timeout {timeout_seconds}s)..."
@@ -186,7 +196,7 @@ def _capture_edge_cert_diagnostics(
     )
     commands = [
         "show sdwan control connections",
-        "show sdwan control connections-history",
+        "show sdwan control connection-history",
         "show sdwan certificate installed",
         "show sdwan certificate validity",
         (
@@ -233,6 +243,37 @@ def _is_edge_in_fabric(manager_config, system_ip: str) -> bool:
     return False
 
 
+def _edge_control_conns(manager_config, system_ip: str) -> int | None:
+    """vManage's current ``control_connections_up`` count for ``system_ip``, or
+    ``None`` if the edge is absent from the health API.
+
+    Used to log the in-window control-plane trace during cert install. Fabric
+    membership is ``>= 2`` (see :func:`_is_edge_in_fabric`); watching the raw
+    count reveals whether a failing attempt's DTLS connections flap (e.g.
+    ``0 -> 1 -> 0``) while vManage tries to push the signed cert.
+    """
+    for item in get_edge_health_items(manager_config):
+        if item.get("system_ip") == system_ip:
+            return _safe_int(item.get("control_connections_up"))
+    return None
+
+
+def _edge_health_trace(item: dict | None) -> tuple:
+    """Compact (control_conns_up, bfd_up, reachability) trace from a health item.
+
+    Used to log the in-window control-plane + data-plane state on every change
+    during cert install, so we can correlate the DTLS flap (e.g. 0->1->0->2)
+    and BFD coming up against the vManage cert-state transitions.
+    """
+    if not item:
+        return (None, None, None)
+    return (
+        _safe_int(item.get("control_connections_up")),
+        _safe_int(item.get("bfd_sessions_up")),
+        item.get("reachability"),
+    )
+
+
 def _wait_for_edge_in_fabric(
     manager_config,
     system_ip: str,
@@ -241,9 +282,9 @@ def _wait_for_edge_in_fabric(
     timeout_seconds: int = None,
 ) -> tuple[bool, str | None]:
     if poll_interval_seconds is None:
-        poll_interval_seconds = settings.EDGE_CERT_VALIDITY_POLL_INTERVAL_SECONDS
+        poll_interval_seconds = settings.fabric_gate.poll
     if timeout_seconds is None:
-        timeout_seconds = settings.EDGE_CERT_VALIDITY_TIMEOUT_SECONDS
+        timeout_seconds = settings.fabric_gate.timeout
     out.step(
         "Waiting for edge to join the SD-WAN fabric per vManage "
         f"(poll {poll_interval_seconds}s, timeout {timeout_seconds}s)..."
@@ -251,15 +292,34 @@ def _wait_for_edge_in_fabric(
 
     start = time.time()
     last_cert_state = None
+    last_trace: object = "unset"
     while True:
-        if _is_edge_in_fabric(manager_config, system_ip):
+        item = next(
+            (
+                it
+                for it in get_edge_health_items(manager_config)
+                if it.get("system_ip") == system_ip
+            ),
+            None,
+        )
+        conns, bfd, reach = _edge_health_trace(item)
+        trace = (conns, bfd, reach)
+        if trace != last_trace:
+            elapsed = int(time.time() - start)
+            out.info(
+                f"[+{elapsed}s] control conns up: {conns}, bfd up: {bfd}, "
+                f"reachability: {reach}"
+            )
+            last_trace = trace
+        if conns is not None and conns >= 2:
             out.success("Edge has joined the SD-WAN fabric.")
             return True, None
 
         if chassis_id:
             cert_state = _get_chassis_cert_state(manager_config, chassis_id)
             if cert_state != last_cert_state:
-                out.info(f"vManage chassis cert state: {cert_state!r}")
+                elapsed = int(time.time() - start)
+                out.info(f"[+{elapsed}s] vManage chassis cert state: {cert_state!r}")
                 last_cert_state = cert_state
             if cert_state in _CERT_STATES_WHERE_EARLY_RETRY_MAY_HELP:
                 increment_run_stat("edge_cert_early_retries")
@@ -305,6 +365,62 @@ def _get_chassis_cert_state(manager_config, chassis_id: str) -> str | None:
         if dev.get("chasisNumber") == chassis_id:
             return dev.get("vedgeCertificateState")
     return None
+
+
+# Fields on a `/dataservice/system/device/vedges` entry that indicate whether a
+# freshly generated PAYG chassis has been recorded, authorized, and pushed to
+# the controllers by vManage. A vBond `SERNTPRES` ("Serial Number not present")
+# teardown means the edge tried to connect before its serial reached vBond's
+# authorized list — so we snapshot vManage's view right at activation time to
+# measure that propagation lag against the cert-install outcome.
+_CHASSIS_SNAPSHOT_KEYS = (
+    "chasisNumber",
+    "serialNumber",
+    "validity",
+    "state",
+    "vedgeCertificateState",
+    "vbondSyncStatus",
+    "configuredSystemIP",
+    "managementSystemIP",
+    "expirationDate",
+    "uuid",
+)
+
+
+def _log_chassis_authorization_snapshot(
+    manager_config, chassis_id: str, label: str
+) -> None:
+    """Diagnostic: log what vManage knows about ``chassis_id`` at ``label``.
+
+    Used to confirm/refute the theory that ``certinstallfailed`` is driven by
+    the chassis serial not having propagated to the controllers (vBond
+    ``SERNTPRES``) by activation time. A curated summary goes to the main log
+    and the full record to the debug log (so any sync field we did not
+    anticipate is still captured). Never raises.
+    """
+    try:
+        response = sdk_call_json(
+            manager_config, "GET", "/dataservice/system/device/vedges"
+        )
+    except SdkCallError as exc:
+        out.log_only(
+            f"Chassis snapshot ({label}) query failed for {chassis_id}: {exc}",
+            level="warning",
+        )
+        return
+    devices = (response.get("data") or []) if response else []
+    entry = next((d for d in devices if d.get("chasisNumber") == chassis_id), None)
+    if entry is None:
+        out.log_only(
+            f"Chassis snapshot ({label}): {chassis_id} NOT PRESENT in vManage "
+            f"inventory ({len(devices)} vedges total) — serial has not "
+            "propagated yet.",
+            level="warning",
+        )
+        return
+    summary = {k: entry.get(k) for k in _CHASSIS_SNAPSHOT_KEYS if k in entry}
+    out.log_only(f"Chassis snapshot ({label}) for {chassis_id}: {summary}")
+    out.log_only(f"Chassis snapshot ({label}) full record: {entry}", level="debug")
 
 
 def _try_install_device_cert(
@@ -386,9 +502,9 @@ def _activate_edge_license(
     max_attempts: int = None,
 ) -> bool:
     if retry_wait_seconds is None:
-        retry_wait_seconds = settings.EDGE_PAYG_ACTIVATE_RETRY_WAIT_SECONDS
+        retry_wait_seconds = settings.payg_activate.wait
     if max_attempts is None:
-        max_attempts = settings.EDGE_PAYG_ACTIVATE_MAX_ATTEMPTS
+        max_attempts = settings.payg_activate.max_attempts
     chassis = license_entry.get("chassis")
     token = license_entry.get("token")
     if not chassis or not token:
@@ -420,8 +536,8 @@ def _activate_edge_license(
                 out.step("Re-installing root certificate before retrying activation...")
                 _install_root_cert(net_connect)
                 out.spinner_wait(
-                    f"Waiting {settings.WAIT_BEFORE_ACTIVATING_EDGE_SECONDS}s before retrying activation...",
-                    settings.WAIT_BEFORE_ACTIVATING_EDGE_SECONDS,
+                    f"Waiting {settings.waits.before_edge_activation}s before retrying activation...",
+                    settings.waits.before_edge_activation,
                 )
                 continue
             out.error("PAYG activation failed after retries.")
@@ -443,7 +559,7 @@ def run_edge_automation(
     config_file: str | None = None,
     cert: bool = False,
     extra_routing: bool = False,
-    device_type: str = "cisco_ios",
+    device_type: str = "cisco_viptela",
     edge_name: str | None = None,
     defer_cert_result: bool = False,
 ) -> None:
@@ -494,7 +610,9 @@ def _run_edge_automation_body(
             initial_config=config.initial_config,
             config_mode_command="config-transaction",
             commit_command="commit",
-            read_timeout=settings.NETMIKO_INCREASED_READ_TIMEOUT_SECONDS,
+            read_timeout=settings.waits.netmiko_read_timeout,
+            config_ready_timeout=settings.config_ready.timeout,
+            config_ready_poll_interval=settings.config_ready.poll,
         )
     else:
         # Try configured password first, then default if it fails
@@ -532,7 +650,7 @@ def _run_edge_automation_body(
             config_file,
             config_mode_command="config-transaction",
             commit_command="commit",
-            read_timeout=settings.NETMIKO_INCREASED_READ_TIMEOUT_SECONDS,
+            read_timeout=settings.waits.netmiko_read_timeout,
         )
 
     if extra_routing:
@@ -554,7 +672,7 @@ def _run_edge_automation_body(
             extra_routing_config,
             config_mode_command="config-transaction",
             commit_command="commit",
-            read_timeout=settings.NETMIKO_INCREASED_READ_TIMEOUT_SECONDS,
+            read_timeout=settings.waits.netmiko_read_timeout,
         )
 
     if cert:
@@ -587,40 +705,55 @@ def _run_edge_automation_body(
             raise SystemExit(1)
         license_entry = licenses[0]
         _record_latest_edge_chassis(label, license_entry["chassis"])
-        if not scp_copy_file(
-            net_connect,
-            host=config.validator_ip,
-            username=settings.validator.username,
-            password=settings.validator.password,
-            remote_file=settings.ROOT_CERT,
-            destination="bootflash:/sdwan/",
-            description="Copying root certificate from validator via SCP...",
-        ):
-            net_connect.disconnect()
-            raise SystemExit(1)
-        _install_root_cert(net_connect)
-        if not _wait_for_edge_cert(net_connect):
-            out.step("Re-installing root certificate with 'new-roots' option...")
-            _install_root_cert(net_connect, use_new_roots=True)
-            if not _wait_for_edge_cert(net_connect):
-                out.error(
-                    "Device certificate still not installed; aborting activation."
-                )
+        # The root CA chain is per-edge and persists across chassis regenerations,
+        # so only install it once per edge per run — retries just need a fresh
+        # PAYG chassis + activation, not another ~2 min SCP + install + poll.
+        if label in _ROOT_CERT_INSTALLED:
+            out.info(
+                "Root CA chain already installed this run; skipping SCP + install."
+            )
+        else:
+            if not scp_copy_file(
+                net_connect,
+                host=config.validator_ip,
+                username=settings.validator.username,
+                password=settings.validator.password,
+                remote_file=settings.ROOT_CERT,
+                destination="bootflash:/sdwan/",
+                description="Copying root certificate from validator via SCP...",
+            ):
                 net_connect.disconnect()
                 raise SystemExit(1)
+            _install_root_cert(net_connect)
+            if not _wait_for_edge_cert(net_connect):
+                out.step("Re-installing root certificate with 'new-roots' option...")
+                _install_root_cert(net_connect, use_new_roots=True)
+                if not _wait_for_edge_cert(net_connect):
+                    out.error(
+                        "Device certificate still not installed; aborting activation."
+                    )
+                    net_connect.disconnect()
+                    raise SystemExit(1)
+            _ROOT_CERT_INSTALLED.add(label)
         # Serialize activation across worker threads so vManage doesn't receive
         # multiple CSRs concurrently — concurrent CSRs from PAYG-generated
         # chassis trigger BYOL/PAYG mismatch races that leave edges in
         # `certinstallfailed`. The gap after the activate command gives vManage
         # time to start processing this CSR before the next edge submits.
         with _ACTIVATION_LOCK:
+            _log_chassis_authorization_snapshot(
+                settings.manager, license_entry["chassis"], "pre-activate"
+            )
             if not _activate_edge_license(net_connect, license_entry):
                 net_connect.disconnect()
                 raise SystemExit(1)
             out.spinner_wait(
                 "Holding lock to let vManage pick up this CSR before the next edge "
-                f"activates ({settings.EDGE_ACTIVATION_GAP_SECONDS}s)...",
-                settings.EDGE_ACTIVATION_GAP_SECONDS,
+                f"activates ({settings.waits.activation_gap}s)...",
+                settings.waits.activation_gap,
+            )
+            _log_chassis_authorization_snapshot(
+                settings.manager, license_entry["chassis"], "post-activate-gap"
             )
         if defer_cert_result:
             out.info(
@@ -635,7 +768,7 @@ def _run_edge_automation_body(
                 settings.manager,
                 config,
                 license_entry["chassis"],
-                settings.EDGE_CERT_VALIDITY_MAX_ATTEMPTS,
+                settings.fabric_gate.max_attempts,
                 device_type,
             ):
                 out.error("Edge did not join the fabric after PAYG activation.")
@@ -676,6 +809,7 @@ def _run_edges_worker_phase(
                     config_file=config_file,
                     cert=cert,
                     extra_routing=extra_routing,
+                    device_type=settings.EDGE_DEVICE_TYPE,
                     edge_name=edge_name,
                     defer_cert_result=defer_cert_result,
                 )
@@ -735,35 +869,139 @@ def _edges_not_in_fabric(
     return missing_or_down
 
 
+def _log_edge_control_conns(
+    edge_configs: list[settings.EdgeConfig],
+    edge_name_by_id: dict[int, str],
+    start: float,
+) -> None:
+    """Emit each edge's control/BFD/reachability trace on change during the gate.
+
+    The multi-edge convergence gate polls vManage, not the edge, so this is our
+    only in-window view of control-plane stability. Logging on change keeps the
+    trace compact while still capturing every flap as a transition; the elapsed
+    stamp lets us line the flap up against the vManage cert-state transitions.
+    """
+    health = {
+        item.get("system_ip"): item for item in get_edge_health_items(settings.manager)
+    }
+    elapsed = int(time.time() - start)
+    for edge_config in edge_configs:
+        name = edge_name_by_id.get(id(edge_config), edge_config.system_ip)
+        trace = _edge_health_trace(health.get(edge_config.system_ip))
+        if _LAST_REPORTED_CONNS_BY_EDGE.get(name, "unset") != trace:
+            conns, bfd, reach = trace
+            out.info(
+                f"{name}: [+{elapsed}s] control conns up: {conns}, bfd up: {bfd}, "
+                f"reachability: {reach}"
+            )
+            _LAST_REPORTED_CONNS_BY_EDGE[name] = trace
+
+
+def _dump_gate_failure_diagnostics(
+    edge_configs: list[settings.EdgeConfig],
+    edge_name_by_id: dict[int, str],
+    failed_edges: list[str],
+) -> None:
+    """Reconnect to each cert-install-failed edge and log a one-shot edge-side
+    diagnostic (control connections + history + cert + syslog).
+
+    The convergence gate would otherwise regenerate a new chassis without ever
+    looking at *why* the attempt failed, since it only reads vManage. This is
+    best-effort and never raises: a failed reconnect just logs a note.
+    """
+    config_by_name = {edge_name_by_id.get(id(cfg), "edge"): cfg for cfg in edge_configs}
+    for name in failed_edges:
+        edge_config = config_by_name.get(name)
+        if not edge_config:
+            continue
+        chassis_id = _get_latest_edge_chassis(name) or "unknown"
+        with thread_label(f"[{name}]"):
+            net_connect = None
+            try:
+                net_connect = connect_to_device(
+                    settings.EDGE_DEVICE_TYPE,
+                    edge_config.mgmt_ip,
+                    edge_config.username,
+                    edge_config.password,
+                    exit_on_failure=False,
+                )
+                if not net_connect:
+                    net_connect = connect_to_device(
+                        settings.EDGE_DEVICE_TYPE,
+                        edge_config.mgmt_ip,
+                        edge_config.username,
+                        edge_config.default_password,
+                        exit_on_failure=False,
+                    )
+                if not net_connect:
+                    out.log_only(
+                        "Gate diagnostics: could not connect to edge to capture "
+                        "cert-failure diagnostics.",
+                        level="warning",
+                    )
+                    continue
+                _capture_edge_cert_diagnostics(
+                    net_connect, chassis_id, "certinstallfailed"
+                )
+            except Exception as exc:  # pragma: no cover - diagnostic path
+                out.log_only(f"Gate diagnostics capture failed: {exc}", level="warning")
+            finally:
+                if net_connect:
+                    with contextlib.suppress(Exception):  # pragma: no cover - defensive
+                        net_connect.disconnect()
+
+
 def _wait_for_edges_in_fabric(
     edge_configs: list[settings.EdgeConfig],
     edge_name_by_id: dict[int, str],
 ) -> list[str]:
+    """Wait until every edge reaches >=2 control connections.
+
+    Returns the edges that need a FRESH chassis (regeneration): those whose cert
+    genuinely failed (`certinstallfailed`) or never installed within the timeout.
+    An edge whose latest chassis is already `certinstalled` is never returned —
+    its cert works, so control still <2 is a convergence/data-plane matter, and a
+    new chassis would only tear down the working identity. Raises SystemExit if a
+    `certinstalled` edge still can't converge control (data-plane/TLOC issue).
+    """
     if len(edge_configs) <= 1:
         out.info("Skipping shared fabric-membership gate for a single edge target.")
         return []
 
-    poll_interval_seconds = settings.EDGE_CERT_VALIDITY_POLL_INTERVAL_SECONDS
-    timeout_seconds = settings.EDGE_CERT_VALIDITY_TIMEOUT_SECONDS
+    poll_interval_seconds = settings.fabric_gate.poll
+    timeout_seconds = settings.fabric_gate.timeout
     out.step(
         "Waiting for all targeted edges to join the SD-WAN fabric per vManage "
         f"(poll {poll_interval_seconds}s, timeout {timeout_seconds}s)..."
     )
 
     start = time.time()
+    # Per-edge deadline: each edge gets `timeout` to install its cert, then a
+    # fresh `timeout` (reset the moment it installs) for its control plane to
+    # converge. A chassis whose cert is already `certinstalled` is NEVER
+    # regenerated — regenerating a working identity is what caused edges to churn
+    # and never settle.
+    all_names = [edge_name_by_id.get(id(c), c.system_ip) for c in edge_configs]
+    deadline = {name: start + timeout_seconds for name in all_names}
+    cert_installed: set[str] = set()
+
     with phase("edge_fabric_gate"):
         while True:
+            _log_edge_control_conns(edge_configs, edge_name_by_id, start)
             down_edges = _edges_not_in_fabric(edge_configs, edge_name_by_id)
             if not down_edges:
                 out.success("All targeted edges have joined the SD-WAN fabric.")
                 return []
 
-            failed_cert_edges = []
+            now = time.time()
+            regen: list[str] = []  # genuine cert failures -> fresh chassis now
             for edge_name in down_edges:
                 chassis_id = _get_latest_edge_chassis(edge_name)
-                if not chassis_id:
-                    continue
-                cert_state = _get_chassis_cert_state(settings.manager, chassis_id)
+                cert_state = (
+                    _get_chassis_cert_state(settings.manager, chassis_id)
+                    if chassis_id
+                    else None
+                )
                 last_state = _LAST_REPORTED_CERT_STATE_BY_EDGE.get(edge_name)
                 if cert_state and cert_state != last_state:
                     out.info(
@@ -771,24 +1009,51 @@ def _wait_for_edges_in_fabric(
                         f"{chassis_id}: {cert_state!r}"
                     )
                     _LAST_REPORTED_CERT_STATE_BY_EDGE[edge_name] = cert_state
-                if cert_state in _CERT_STATES_WHERE_EARLY_RETRY_MAY_HELP:
-                    failed_cert_edges.append(edge_name)
 
-            if failed_cert_edges:
-                increment_run_stat("edge_cert_early_retries", len(failed_cert_edges))
+                if cert_state == "certinstalled":
+                    # Cert works; never regenerate. Give control its own window.
+                    if edge_name not in cert_installed:
+                        cert_installed.add(edge_name)
+                        deadline[edge_name] = now + timeout_seconds
+                elif cert_state in _CERT_STATES_WHERE_EARLY_RETRY_MAY_HELP:
+                    regen.append(edge_name)
+
+            # Fast-bail: genuine cert failures (certinstallfailed) regenerate now.
+            if regen:
+                increment_run_stat("edge_cert_early_retries", len(regen))
                 out.warning(
                     "vManage reported cert install failure for: "
-                    + ", ".join(sorted(failed_cert_edges))
-                    + "; retrying those edges without waiting for the full fabric timeout."
+                    + ", ".join(sorted(regen))
+                    + "; regenerating those edges with a fresh chassis."
                 )
-                return sorted(failed_cert_edges)
+                _dump_gate_failure_diagnostics(
+                    edge_configs, edge_name_by_id, sorted(regen)
+                )
+                return sorted(regen)
 
-            if time.time() - start >= timeout_seconds:
+            expired = [name for name in down_edges if now >= deadline[name]]
+            if expired:
+                installed_stuck = sorted(n for n in expired if n in cert_installed)
+                never_installed = sorted(n for n in expired if n not in cert_installed)
+                if installed_stuck:
+                    # Cert is good but control never converged -> data-plane/TLOC,
+                    # not a certificate problem. Do NOT regenerate a working
+                    # identity (mirrors the BFD-convergence handling below).
+                    out.error(
+                        "Cert is installed but the control plane did not converge "
+                        "for: "
+                        + ", ".join(installed_stuck)
+                        + ". This is a data-plane/TLOC issue, not a certificate "
+                        "issue; not regenerating."
+                    )
+                    raise SystemExit(1)
+                # CSR never completed for these -> a fresh chassis is warranted.
                 out.warning(
-                    "Fabric membership did not converge before timeout for: "
-                    + ", ".join(sorted(down_edges))
+                    "Cert did not install before timeout for: "
+                    + ", ".join(never_installed)
+                    + "; regenerating with a fresh chassis."
                 )
-                return down_edges
+                return never_installed
 
             out.spinner_wait(
                 "Next fabric-membership check for: " + ", ".join(sorted(down_edges)),
@@ -804,8 +1069,8 @@ def _wait_for_edges_bfd_converged(
         out.info("Skipping BFD convergence gate for a single edge target.")
         return []
 
-    poll_interval_seconds = settings.EDGE_BFD_CONVERGENCE_POLL_INTERVAL_SECONDS
-    timeout_seconds = settings.EDGE_BFD_CONVERGENCE_TIMEOUT_SECONDS
+    poll_interval_seconds = settings.bfd_gate.poll
+    timeout_seconds = settings.bfd_gate.timeout
     out.step(
         "Waiting for all targeted edges to report BFD sessions in vManage "
         f"(poll {poll_interval_seconds}s, timeout {timeout_seconds}s)..."
@@ -853,7 +1118,7 @@ def run_edges_automation(
     }
 
     use_bfd_convergence_gate = cert and len(edge_configs) > 1
-    max_attempts = settings.EDGE_BFD_CONVERGENCE_MAX_ATTEMPTS if cert else 1
+    max_attempts = settings.edge_retry_budget if cert else 1
     phase_edge_configs = edge_configs
     phase_initial_config = initial_config
     phase_config_file = config_file
@@ -906,10 +1171,11 @@ def run_edges_automation(
             )
 
         if use_bfd_convergence_gate:
-            # First prove every edge has both control connections. If a peer is
-            # missing control, BFD on the healthy peers cannot fully converge;
-            # retry only the control-down edges instead of regenerating certs
-            # for already-authenticated edges.
+            # First prove every edge has both control connections. The gate only
+            # returns edges that need a fresh chassis (cert failed / never
+            # installed); it never returns already-authenticated (certinstalled)
+            # edges — those are waited out or flagged as data-plane issues, not
+            # regenerated.
             retry_names = sorted(
                 _wait_for_edges_in_fabric(edge_configs, edge_name_by_id)
             )

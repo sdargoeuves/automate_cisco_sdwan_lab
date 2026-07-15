@@ -66,9 +66,21 @@ Core rules:
 - BFD is checked only after all targeted edges have full control connections.
 - If all edges have `2/2` control but BFD is down, treat it as data-plane/TLOC,
   not cert onboarding.
+- Edges connect with the `cisco_viptela` Netmiko driver (`shared.edge_device_type`),
+  like the controllers — cEdges run the Viptela config model (`config-transaction`)
+  in controller mode, not classic IOS.
+- Before pushing initial edge config, a readiness gate (`wait_for_config_ready`)
+  probes `config-transaction` until confd accepts it — a freshly-booted vEdge
+  answers SSH before confd is ready.
+- Never regenerate a chassis whose latest cert state is `certinstalled`. If
+  control is still `<2` with a good cert, that is convergence/data-plane, not a
+  cert failure; regenerating a working identity only churns (was a real bug that
+  kept edges cycling for ~45 min).
 
 PAYG activation is serialized with `_ACTIVATION_LOCK`; initial config, root cert
-copy/install, and waits can still run in parallel.
+copy/install, and waits can still run in parallel. The root CA chain is installed
+once per edge per run — chassis regenerations skip the SCP + install because the
+root chain persists across chassis.
 
 ## Retry Model
 
@@ -87,8 +99,13 @@ Multi-edge cert runs:
 
 - Workers stop after successful PAYG activation.
 - Shared fabric gate waits for all targeted edges to reach `control_connections_up >= 2`.
-- Gate watches each latest chassis state and retries early on `certinstallfailed`.
-- Retry target is only edges still missing full control.
+- Gate watches each latest chassis state:
+  - `certinstallfailed` -> regenerate a fresh chassis immediately (fast-bail).
+  - `certinstalled` but control still `<2` -> NEVER regenerate; give it a fresh
+    convergence window (per-edge deadline, reset when the cert installs). If it
+    still can't reach `2`, raise it as a data-plane/TLOC issue — do not churn.
+  - never-installed by the timeout -> regenerate (its CSR never completed).
+- Retry target is only cert-failed / uninstalled edges (never `certinstalled` ones).
 - Retry budget is tracked per edge, not per command round.
 - BFD gate runs only after all targeted edges are in control fabric.
 

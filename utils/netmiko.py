@@ -84,6 +84,69 @@ def is_account_lockout_error(error_text: str) -> bool:
     return any(phrase in lower for phrase in lock_phrases)
 
 
+def _leave_config_mode(net_connect) -> None:
+    """Cleanly leave the readiness probe's config session.
+
+    Uses Netmiko's ``exit_config_mode`` (prompt-synchronized, and for the
+    Viptela driver it answers the "Uncommitted changes found, commit them?"
+    prompt) rather than raw timing sends. Raw ``send_command_timing`` would
+    return before the slow ``config-transaction`` banner is fully read, leaving
+    the channel out of sync and breaking the real config push that follows with
+    "Pattern not detected: '[>#]'".
+    """
+    with suppress(Exception):
+        net_connect.exit_config_mode()
+
+
+def wait_for_config_ready(
+    net_connect,
+    config_mode_command: str,
+    poll_interval: float,
+    timeout: float,
+    device_label: str | None = None,
+) -> bool:
+    """Block until the device can actually enter config mode, or time out.
+
+    A freshly-booted vEdge accepts SSH and login well before its management
+    daemon (confd) is ready to accept ``config-transaction`` — Netmiko then
+    raises "Failed to enter configuration mode". This gate absorbs that boot
+    window once, up front, so the real config push afterwards runs against a
+    ready device with normal (non-retried) timing.
+
+    Returns True once config mode is reachable, False if the timeout elapses.
+    """
+    label = f"[{device_label}] " if device_label else ""
+    deadline = time.monotonic() + timeout
+    attempt = 0
+    while True:
+        attempt += 1
+        try:
+            net_connect.config_mode(config_command=config_mode_command)
+        except Exception as exc:
+            first_line = str(exc).splitlines()[0] if str(exc) else ""
+            out.log_only(
+                f"{label}Config-mode readiness probe failed "
+                f"(attempt {attempt}): {first_line or exc.__class__.__name__}",
+                level="debug",
+            )
+        else:
+            # Reachable — leave the probe transaction without committing.
+            _leave_config_mode(net_connect)
+            out.success(f"{label}Device is ready to accept configuration")
+            return True
+
+        if time.monotonic() >= deadline:
+            out.warning(
+                f"{label}Device still not ready to accept configuration after "
+                f"{int(timeout)}s; proceeding anyway."
+            )
+            return False
+        out.spinner_wait(
+            f"{label}Waiting for device to accept configuration",
+            poll_interval,
+        )
+
+
 def push_cli_config(
     net_connect,
     config_commands,
@@ -124,13 +187,13 @@ def push_cli_config(
     out.step("Committing configuration...")
     if commit_command:
         commit_output = ""
-        attempts = max(1, settings.NETMIKO_COMMIT_RETRY_ATTEMPTS)
+        attempts = max(1, settings.commit_retry.max_attempts)
         out.step("Waiting for commit response...")
         for attempt in range(1, attempts + 1):
             try:
                 commit_output = net_connect.send_command_timing(
                     commit_command,
-                    read_timeout=settings.NETMIKO_COMMIT_READ_TIMEOUT_SECONDS,
+                    read_timeout=settings.commit_retry.read_timeout,
                     strip_prompt=False,
                     strip_command=False,
                 )
@@ -147,7 +210,7 @@ def push_cli_config(
                 raise RuntimeError("Commit did not complete after retries.")
             out.spinner_wait(
                 "Retrying commit",
-                settings.NETMIKO_COMMIT_RETRY_WAIT_SECONDS,
+                settings.commit_retry.wait,
             )
         output += "\n" + net_connect.send_command_timing(
             "end", strip_prompt=False, strip_command=False
@@ -169,9 +232,26 @@ def push_initial_config(
     config_mode_command=None,
     commit_command: str | None = None,
     read_timeout: float | None = None,
+    config_ready_timeout: float = 0,
+    config_ready_poll_interval: float = 0,
+    device_label: str | None = None,
 ):
-    """Push initial device configuration."""
+    """Push initial device configuration.
+
+    When ``config_ready_timeout`` is set, first wait for the device to actually
+    accept config mode before pushing (see :func:`wait_for_config_ready`). This
+    is used for freshly-booted vEdges that answer SSH before confd is ready.
+    """
     out.header("Pushing Initial Configuration")
+
+    if config_ready_timeout and config_mode_command:
+        wait_for_config_ready(
+            net_connect,
+            config_mode_command=config_mode_command,
+            poll_interval=config_ready_poll_interval,
+            timeout=config_ready_timeout,
+            device_label=device_label,
+        )
 
     push_cli_config(
         net_connect,
@@ -261,14 +341,16 @@ def bootstrap_initial_config(
     config_mode_command: str | None = None,
     commit_command: str | None = None,
     read_timeout: float | None = None,
+    config_ready_timeout: float = 0,
+    config_ready_poll_interval: float = 0,
 ):
     initial_config_empty = not initial_config.strip()
     if initial_config_empty:
         out.warning(f"{device_label} initial config is empty; skipping.")
 
-    retry_wait_seconds = settings.NETMIKO_CONNECT_RETRY_WAIT_SECONDS
-    retry_max_seconds = settings.NETMIKO_CONNECT_RETRY_MAX_SECONDS
-    lockout_retry_interval = settings.NETMIKO_CONNECT_LOCKOUT_RETRY_INTERVAL_SECONDS
+    retry_wait_seconds = settings.connect_retry.wait
+    retry_max_seconds = settings.connect_retry.max_seconds
+    lockout_retry_interval = settings.connect_retry.lockout
     started = time.monotonic()
     attempt = 0
     last_error_summary = ""
@@ -316,7 +398,7 @@ def bootstrap_initial_config(
                     lockout_detected = True
                     # Extend max retry time to allow for lockout period
                     retry_max_seconds = max(
-                        retry_max_seconds, settings.NETMIKO_CONNECT_RETRY_MAX_SECONDS
+                        retry_max_seconds, settings.connect_retry.max_seconds
                     )
                     out.warning(
                         f"Both passwords failed. Assuming account lockout. "
@@ -361,6 +443,9 @@ def bootstrap_initial_config(
                     config_mode_command=config_mode_command,
                     commit_command=commit_command,
                     read_timeout=read_timeout,
+                    config_ready_timeout=config_ready_timeout,
+                    config_ready_poll_interval=config_ready_poll_interval,
+                    device_label=device_label,
                 )
                 return net_connect
             else:
@@ -386,6 +471,9 @@ def bootstrap_initial_config(
                         config_mode_command=config_mode_command,
                         commit_command=commit_command,
                         read_timeout=read_timeout,
+                        config_ready_timeout=config_ready_timeout,
+                        config_ready_poll_interval=config_ready_poll_interval,
+                        device_label=device_label,
                     )
 
                     net_connect.disconnect()
@@ -420,7 +508,7 @@ def bootstrap_initial_config(
                         lockout_detected = True
                         retry_max_seconds = max(
                             retry_max_seconds,
-                            settings.NETMIKO_CONNECT_RETRY_MAX_SECONDS,
+                            settings.connect_retry.max_seconds,
                         )
                         out.warning(
                             f"Both passwords failed. Assuming account lockout. "

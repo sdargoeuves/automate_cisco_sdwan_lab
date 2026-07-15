@@ -132,13 +132,19 @@ Implemented in `components/sdwan_edges.py`.
 
 Each edge worker performs:
 
-1. Connect to the edge with Netmiko.
-2. Optionally push initial config using `config-transaction` and `commit`.
+1. Connect to the edge with Netmiko using the `cisco_viptela` driver
+   (`shared.edge_device_type`) — cEdges run the Viptela config model
+   (`config-transaction`) in controller mode, not classic IOS.
+2. Optionally push initial config using `config-transaction` and `commit`,
+   first waiting via a readiness gate (`wait_for_config_ready`) until confd
+   accepts `config-transaction` (a freshly-booted vEdge answers SSH before confd
+   is ready).
 3. If `--cert` is requested, check whether vManage already sees the edge in the
    fabric.
 4. Generate one PAYG license through vManage.
-5. Copy the root certificate from vBond to the edge with SCP.
-6. Install the root CA chain on the edge.
+5. Copy the root certificate from vBond to the edge with SCP (once per edge per
+   run — skipped on chassis regenerations, since the root chain persists).
+6. Install the root CA chain on the edge (also once per edge per run).
 7. Activate the PAYG license on the edge with:
 
 ```text
@@ -235,9 +241,18 @@ with a fresh certificate/license flow. Edges that already have both control
 connections are not retried, because they are already authenticated.
 
 During this shared fabric gate, the code also watches the latest generated
-chassis ID for each down edge. If vManage moves that chassis to
-`certinstallfailed`, the gate stops waiting and retries that edge immediately
-instead of burning the full fabric timeout.
+chassis ID for each down edge:
+
+- `certinstallfailed` → stop waiting and regenerate a fresh chassis immediately,
+  instead of burning the full fabric timeout.
+- `certinstalled` but control still `< 2` → **never regenerate.** The cert works,
+  so a slow control plane is a convergence/data-plane matter. The edge gets a
+  fresh convergence window (a per-edge deadline, reset the moment its cert
+  installs); if it still cannot reach `2`, the gate raises it as a
+  data-plane/TLOC issue rather than churning. Regenerating a working
+  `certinstalled` identity was a real bug — it tore the edge down repeatedly and
+  kept it cycling for ~45 minutes.
+- never installed by the timeout → regenerate (its CSR never completed).
 
 The retry budget is tracked per edge, not per command. This matters when several
 edges fail at different times: one edge can be retried without consuming the
