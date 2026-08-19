@@ -698,21 +698,10 @@ def _run_edge_automation_body(
             net_connect.disconnect()
             out.success("Disconnected from Edge")
             return
-        licenses = generate_payg_licenses(settings.manager, 1)
-        if not licenses:
-            out.error("Failed to generate PAYG license; aborting edge automation.")
-            net_connect.disconnect()
-            raise SystemExit(1)
-        license_entry = licenses[0]
-        _record_latest_edge_chassis(label, license_entry["chassis"])
         # The root CA chain is per-edge and persists across chassis regenerations,
         # so only install it once per edge per run — retries just need a fresh
         # PAYG chassis + activation, not another ~2 min SCP + install + poll.
-        if label in _ROOT_CERT_INSTALLED:
-            out.info(
-                "Root CA chain already installed this run; skipping SCP + install."
-            )
-        else:
+        if label not in _ROOT_CERT_INSTALLED:
             if not scp_copy_file(
                 net_connect,
                 host=config.validator_ip,
@@ -735,12 +724,23 @@ def _run_edge_automation_body(
                     net_connect.disconnect()
                     raise SystemExit(1)
             _ROOT_CERT_INSTALLED.add(label)
-        # Serialize activation across worker threads so vManage doesn't receive
-        # multiple CSRs concurrently — concurrent CSRs from PAYG-generated
-        # chassis trigger BYOL/PAYG mismatch races that leave edges in
-        # `certinstallfailed`. The gap after the activate command gives vManage
-        # time to start processing this CSR before the next edge submits.
+        else:
+            out.info(
+                "Root CA chain already installed this run; skipping SCP + install."
+            )
+        # Serialize PAYG license generation + activation across worker threads to
+        # prevent vManage license allocator from receiving overlapping requests.
+        # Concurrent PAYG license generation triggers BYOL/PAYG mismatch races that
+        # leave edges in `certinstallfailed`. The gap after activate gives vManage
+        # time to process this CSR before the next edge generates its own license.
         with _ACTIVATION_LOCK:
+            licenses = generate_payg_licenses(settings.manager, 1)
+            if not licenses:
+                out.error("Failed to generate PAYG license; aborting edge automation.")
+                net_connect.disconnect()
+                raise SystemExit(1)
+            license_entry = licenses[0]
+            _record_latest_edge_chassis(label, license_entry["chassis"])
             _log_chassis_authorization_snapshot(
                 settings.manager, license_entry["chassis"], "pre-activate"
             )
@@ -749,7 +749,7 @@ def _run_edge_automation_body(
                 raise SystemExit(1)
             out.spinner_wait(
                 "Holding lock to let vManage pick up this CSR before the next edge "
-                f"activates ({settings.waits.activation_gap}s)...",
+                f"generates its license ({settings.waits.activation_gap}s)...",
                 settings.waits.activation_gap,
             )
             _log_chassis_authorization_snapshot(
@@ -997,11 +997,16 @@ def _wait_for_edges_in_fabric(
             regen: list[str] = []  # genuine cert failures -> fresh chassis now
             for edge_name in down_edges:
                 chassis_id = _get_latest_edge_chassis(edge_name)
-                cert_state = (
-                    _get_chassis_cert_state(settings.manager, chassis_id)
-                    if chassis_id
-                    else None
-                )
+
+                if not chassis_id:
+                    out.warning(
+                        f"{edge_name} has no chassis ID; never reached activation phase. "
+                        "Regenerating with a fresh chassis."
+                    )
+                    regen.append(edge_name)
+                    continue
+
+                cert_state = _get_chassis_cert_state(settings.manager, chassis_id)
                 last_state = _LAST_REPORTED_CERT_STATE_BY_EDGE.get(edge_name)
                 if cert_state and cert_state != last_state:
                     out.info(
