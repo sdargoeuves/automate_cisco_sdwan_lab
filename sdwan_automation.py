@@ -86,6 +86,21 @@ def _command_line_for_log() -> str:
 
 
 def _installed_version(distribution_name: str) -> str:
+    # For the main package, try to read from local pyproject.toml first
+    if distribution_name == "sdwan-automation":
+        try:
+            import tomllib
+
+            script_dir = Path(__file__).resolve().parent
+            pyproject_path = script_dir / "pyproject.toml"
+            if pyproject_path.exists():
+                with open(pyproject_path, "rb") as f:
+                    data = tomllib.load(f)
+                    return data["project"]["version"]
+        except Exception:
+            pass
+
+    # For dependencies and as fallback, use installed package metadata
     try:
         return importlib.metadata.version(distribution_name)
     except importlib.metadata.PackageNotFoundError:
@@ -101,7 +116,13 @@ def _print_version() -> None:
         str(package_file.parent / "utils"),
     ]
 
-    print(f"sdwan-automation version {_installed_version(PACKAGE_NAME)}")
+    version = _installed_version(PACKAGE_NAME)
+
+    # Add (local) indicator if running from repo (has pyproject.toml)
+    if (package_file.parent / "pyproject.toml").exists():
+        version = f"{version} (local)"
+
+    print(f"sdwan-automation version {version}")
     print(f"  executable location: {executable}")
     print(f"  package location: {package_locations}")
     print()
@@ -305,13 +326,25 @@ def main():
         help="Configuration file to push to controller",
     )
 
-    edges_parser = subparsers.add_parser("edges", help="Edge tasks")
+    edges_parser = subparsers.add_parser(
+        "edges",
+        help="Edge tasks",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=(
+            "Examples:\n"
+            "  edges all --cert                    Retry all edges\n"
+            "  edges failed --cert                 Retry edges with <2 control conns\n"
+            "  edges nok --cert                    Same as 'failed' (shorthand)\n"
+            "  edges edge1x01,edge2x01 --cert      Retry specific edges"
+        ),
+    )
     edges_parser.set_defaults(_parser=edges_parser)
     edges_parser.add_argument(
         "targets",
         help=(
             "Comma-separated edge names (keys under devices.edges), 'all', "
-            "or 'failed' for edges with fewer than 2 control connections"
+            "'failed', or 'nok' (shorthand for 'failed'). "
+            "Note: 'failed'/'nok' only works with --cert"
         ),
     )
     edges_parser.add_argument(

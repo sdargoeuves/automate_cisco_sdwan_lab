@@ -77,10 +77,17 @@ Core rules:
   cert failure; regenerating a working identity only churns (was a real bug that
   kept edges cycling for ~45 min).
 
-PAYG activation is serialized with `_ACTIVATION_LOCK`; initial config, root cert
-copy/install, and waits can still run in parallel. The root CA chain is installed
-once per edge per run — chassis regenerations skip the SCP + install because the
-root chain persists across chassis.
+PAYG activation is serialized with `_ACTIVATION_LOCK` to prevent vManage license
+allocator contention (concurrent license generation caused 88% certinstallfailed
+rates). Initial config, root cert copy/install, and waits can still run in
+parallel. The root CA chain is installed once per edge per run — chassis
+regenerations skip the SCP + install because the root chain persists across
+chassis.
+
+Fast-bail on missing chassis ID: if an edge has no recorded chassis ID during
+the fabric convergence gate, it failed before activation (SSH/config/cert issues)
+and is immediately marked for regeneration instead of waiting the full 600s
+timeout. Saves ~10 min per pre-activation failure.
 
 ## Retry Model
 
