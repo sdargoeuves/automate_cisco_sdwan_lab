@@ -243,6 +243,10 @@ connections are not retried, because they are already authenticated.
 During this shared fabric gate, the code also watches the latest generated
 chassis ID for each down edge:
 
+- **no chassis ID at all** → the edge failed before activation (initial config,
+  SSH, or root cert issues). Immediately mark for regeneration instead of waiting
+  the full fabric timeout. This fast-bail saves ~10 minutes per pre-activation
+  failure.
 - `certinstallfailed` → stop waiting and regenerate a fresh chassis immediately,
   instead of burning the full fabric timeout.
 - `certinstalled` but control still `< 2` → **never regenerate.** The cert works,
