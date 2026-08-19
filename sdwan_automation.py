@@ -305,13 +305,25 @@ def main():
         help="Configuration file to push to controller",
     )
 
-    edges_parser = subparsers.add_parser("edges", help="Edge tasks")
+    edges_parser = subparsers.add_parser(
+        "edges",
+        help="Edge tasks",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=(
+            "Examples:\n"
+            "  edges all --cert                    Retry all edges\n"
+            "  edges failed --cert                 Retry edges with <2 control conns\n"
+            "  edges nok --cert                    Same as 'failed' (shorthand)\n"
+            "  edges edge1x01,edge2x01 --cert      Retry specific edges"
+        ),
+    )
     edges_parser.set_defaults(_parser=edges_parser)
     edges_parser.add_argument(
         "targets",
         help=(
             "Comma-separated edge names (keys under devices.edges), 'all', "
-            "or 'failed' for edges with fewer than 2 control connections"
+            "'failed', or 'nok' (shorthand for 'failed'). "
+            "Note: 'failed'/'nok' only works with --cert"
         ),
     )
     edges_parser.add_argument(
