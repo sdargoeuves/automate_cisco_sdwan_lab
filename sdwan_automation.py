@@ -86,6 +86,21 @@ def _command_line_for_log() -> str:
 
 
 def _installed_version(distribution_name: str) -> str:
+    # For the main package, try to read from local pyproject.toml first
+    if distribution_name == "sdwan-automation":
+        try:
+            import tomllib
+
+            script_dir = Path(__file__).resolve().parent
+            pyproject_path = script_dir / "pyproject.toml"
+            if pyproject_path.exists():
+                with open(pyproject_path, "rb") as f:
+                    data = tomllib.load(f)
+                    return data["project"]["version"]
+        except Exception:
+            pass
+
+    # For dependencies and as fallback, use installed package metadata
     try:
         return importlib.metadata.version(distribution_name)
     except importlib.metadata.PackageNotFoundError:
@@ -101,7 +116,13 @@ def _print_version() -> None:
         str(package_file.parent / "utils"),
     ]
 
-    print(f"sdwan-automation version {_installed_version(PACKAGE_NAME)}")
+    version = _installed_version(PACKAGE_NAME)
+
+    # Add (local) indicator if running from repo (has pyproject.toml)
+    if (package_file.parent / "pyproject.toml").exists():
+        version = f"{version} (local)"
+
+    print(f"sdwan-automation version {version}")
     print(f"  executable location: {executable}")
     print(f"  package location: {package_locations}")
     print()

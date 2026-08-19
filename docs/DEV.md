@@ -28,10 +28,10 @@ Once features are merged to `dev`, test the dev version before creating a releas
 
 ```bash
 # Install the dev version from your fork
-pip install git+https://github.com/YOUR_USERNAME/automate_cisco_sdwan_lab.git@dev
+pip install git+https://github.com/sdargoeuves/automate_cisco_sdwan_lab.git@dev
 
 # Or with uv:
-uv pip install git+https://github.com/YOUR_USERNAME/automate_cisco_sdwan_lab.git@dev
+uv pip install git+https://github.com/sdargoeuves/automate_cisco_sdwan_lab.git@dev
 
 # Run your tests
 sdwan-automation first-boot
@@ -42,7 +42,7 @@ sdwan-automation show devices
 If issues are found, fix them on `dev` and reinstall:
 
 ```bash
-pip install --upgrade --force-reinstall git+https://github.com/YOUR_USERNAME/automate_cisco_sdwan_lab.git@dev
+pip install --upgrade --force-reinstall git+https://github.com/sdargoeuves/automate_cisco_sdwan_lab.git@dev
 ```
 
 ## Step 3: Merge Dev to Main
@@ -116,7 +116,7 @@ git checkout dev && git pull
 git checkout -b feature/my-feature
 
 # Test dev version locally
-pip install --upgrade --force-reinstall git+https://github.com/YOUR_USERNAME/automate_cisco_sdwan_lab.git@dev
+pip install --upgrade --force-reinstall git+https://github.com/sdargoeuves/automate_cisco_sdwan_lab.git@dev
 
 # When ready to release: merge dev to main
 git checkout main && git pull
