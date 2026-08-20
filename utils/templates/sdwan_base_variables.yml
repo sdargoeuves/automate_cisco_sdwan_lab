@@ -54,7 +54,16 @@ timing:
 
   # Edge automation
   edge_stagger_seconds: 10          # delay between launching each edge in parallel (seconds)
-  wait_before_activating_edge_seconds: 60
+  wait_before_activating_edge_seconds: 60   # retry pause after a failed `vedge_cloud activate`
+
+  # One-off pause before the FIRST edge activation of a run (0 = disabled).
+  # Tested at 180s over 3 runs and it did not help: chassis count was unchanged
+  # (14 vs 13 without it) and the position-1 failure it targeted simply moved to
+  # position 2. Across 7 measured runs, roughly one edge per run fails its first
+  # chassis regardless of position or elapsed time, so the failure looks
+  # stochastic rather than something a wait can prevent. Left at 0; the knob
+  # stays because it is the cheapest way to re-test if that ever changes.
+  wait_before_first_edge_activation_seconds: 0
   wait_after_generating_payg_license_seconds: 30
   edge_cert_poll_interval_seconds: 10
   edge_cert_poll_timeout_seconds: 240            # root CA chain install syslog gate
@@ -64,15 +73,37 @@ timing:
   edge_payg_activate_retry_wait_seconds: 60
 
   # Edge activations are serialized across worker threads (one edge at a time runs
-  # `vedge_cloud activate`), then this gap is observed before the next edge
-  # activates — gives vManage time to start processing the CSR so concurrent
-  # CSRs don't race on its side. Everything else stays parallel.
+  # `vedge_cloud activate`). This gap is a small settling pause after activation;
+  # the real separation comes from edge_cert_install_hold_* below, which keeps the
+  # lock until vManage finishes with this chassis. Everything else stays parallel.
+  edge_activation_gap_seconds: 30
+
+  # Hold the activation lock until vManage reaches a terminal cert state
+  # (certinstalled / certinstallfailed) for the chassis just activated, so only
+  # one CSR is ever in its signing pipeline.
   #
-  # Raised 30 -> 60 after a 3-edge run where the only edge to install its cert
-  # first time was the one that happened to wait ~60s longer than the others
-  # (it blocked on this lock); both edges that activated with little settle time
-  # failed 4 attempts each. Costs (N-1) x 30s extra per run.
-  edge_activation_gap_seconds: 60
+  # Measured over a 3-edge run: every chassis that had the pipeline to itself
+  # installed successfully (3/3), and every chassis whose CSR arrived while
+  # another was still in flight failed (3/3). A fixed post-activate gap cannot
+  # fix this — the CSR only reaches vManage 1m50s-3m after activation, and that
+  # lag varies by more than any sane gap value.
+  #
+  # Timeout is a safety valve: on expiry we release the lock and fall through to
+  # the existing fabric gate rather than blocking the run.
+  edge_cert_install_hold_poll_interval_seconds: 15
+  edge_cert_install_hold_timeout_seconds: 600
+
+  # Sub-timeout applied *only* while a chassis is still at `tokengenerated`, i.e.
+  # vManage has not even begun signing. This is not a shorter version of the hold
+  # timeout above: a chassis that has reached `csrgenerated` still gets the full
+  # 600s, because a legitimate install has been measured taking up to 392s.
+  #
+  # Over 30+ activations, `tokengenerated` -> `csrgenerated` took 45-180s. Beyond
+  # that the chassis never progressed at all. One run burned 20 minutes on this:
+  # 600s stuck in the hold, then another 600s in the fabric gate, before finally
+  # regenerating. Bailing at 300s (66% margin over the worst real case) and
+  # regenerating straight away turns that 20 minutes into about 5.
+  edge_cert_token_stall_timeout_seconds: 300
 
   # Post-activation device certificate validity check
   # (`show sdwan certificate validity` returns valid once vManage has signed and pushed

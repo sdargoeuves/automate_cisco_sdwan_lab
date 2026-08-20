@@ -44,6 +44,33 @@ _LAST_REPORTED_CONNS_BY_EDGE: dict[str, int | None] = {}
 # chain is per-edge and persists across chassis regenerations, so we install it
 # once per edge instead of re-doing SCP + install + poll on every cert retry.
 _ROOT_CERT_INSTALLED: set[str] = set()
+# Whether any edge has activated yet this process. Guards the one-off
+# pre-first-activation pause; only ever touched while holding _ACTIVATION_LOCK.
+_FIRST_ACTIVATION_DONE = False
+# Edges whose latest chassis stalled at `tokengenerated` — vManage never started
+# signing it, so it needs a fresh chassis. Set by the activation hold, consumed by
+# the fabric gate so it can regenerate immediately instead of waiting out its own
+# timeout on a chassis that is already known to be dead.
+_TOKEN_STALLED_EDGES: set[str] = set()
+_TOKEN_STALLED_LOCK = threading.Lock()
+
+
+def _mark_token_stalled(edge_name: str) -> None:
+    with _TOKEN_STALLED_LOCK:
+        _TOKEN_STALLED_EDGES.add(edge_name)
+
+
+def _consume_token_stalled(edge_name: str) -> bool:
+    """Return True (once) if this edge's chassis stalled at ``tokengenerated``.
+
+    Consuming the mark matters: the gate regenerates on the strength of it, and a
+    stale mark would send the replacement chassis straight back for regeneration.
+    """
+    with _TOKEN_STALLED_LOCK:
+        if edge_name in _TOKEN_STALLED_EDGES:
+            _TOKEN_STALLED_EDGES.remove(edge_name)
+            return True
+        return False
 
 
 def _record_latest_edge_chassis(edge_name: str, chassis_id: str) -> None:
@@ -374,6 +401,10 @@ def _wait_for_edge_in_fabric(
 _CERT_STATES_WHERE_CLEAR_MAY_HELP = {"certinstalled", "certinstallfailed"}
 _CERT_STATES_WHERE_EARLY_RETRY_MAY_HELP = {"certinstallfailed"}
 
+# vManage is done with a chassis once it reaches one of these; anything else
+# (tokengenerated, csrgenerated, ...) means it is still working on it.
+_TERMINAL_CERT_STATES = {"certinstalled", "certinstallfailed"}
+
 
 def _get_chassis_cert_state(manager_config, chassis_id: str) -> str | None:
     """Query vManage's per-chassis ``vedgeCertificateState`` from
@@ -393,6 +424,78 @@ def _get_chassis_cert_state(manager_config, chassis_id: str) -> str | None:
         if dev.get("chasisNumber") == chassis_id:
             return dev.get("vedgeCertificateState")
     return None
+
+
+def _wait_for_chassis_cert_settled(
+    manager_config,
+    chassis_id: str,
+    edge_name: str | None = None,
+    poll_interval_seconds: int = None,
+    timeout_seconds: int = None,
+    token_stall_seconds: int = None,
+) -> str | None:
+    """Block until vManage reaches a terminal cert state for ``chassis_id``.
+
+    Called while holding ``_ACTIVATION_LOCK`` so that only one chassis is ever in
+    vManage's signing pipeline.
+
+    Two timeouts, because "not finished yet" and "never started" need different
+    patience. A chassis that has reached ``csrgenerated`` gets the full
+    ``timeout_seconds`` — a real install has been measured taking up to 392s. One
+    still at ``tokengenerated`` after ``token_stall_seconds`` is abandoned early:
+    that transition took 45-180s across 30+ measured activations, so past ~300s it
+    is not coming. Such an edge is marked so the fabric gate regenerates it at
+    once rather than waiting out its own timeout too (that double wait cost one run
+    20 minutes).
+
+    Returns the terminal state, or the last observed state on either timeout.
+    Timing out is not fatal: we release the lock rather than stall every edge
+    queued behind us.
+    """
+    if poll_interval_seconds is None:
+        poll_interval_seconds = settings.cert_install_hold.poll
+    if timeout_seconds is None:
+        timeout_seconds = settings.cert_install_hold.timeout
+    if token_stall_seconds is None:
+        token_stall_seconds = settings.waits.token_stall_timeout
+    out.step(
+        "Holding activation lock until vManage settles this chassis "
+        f"(poll {poll_interval_seconds}s, timeout {timeout_seconds}s)..."
+    )
+
+    start = time.time()
+    last_state: object = "unset"
+    state = None
+    while True:
+        state = _get_chassis_cert_state(manager_config, chassis_id)
+        elapsed = time.time() - start
+        if state != last_state:
+            out.info(f"[+{int(elapsed)}s] chassis cert state: {state!r}")
+            last_state = state
+        if state in _TERMINAL_CERT_STATES:
+            out.success(f"vManage settled this chassis: {state!r}")
+            return state
+        if (
+            token_stall_seconds
+            and state == "tokengenerated"
+            and elapsed >= token_stall_seconds
+        ):
+            out.warning(
+                f"Chassis never progressed past 'tokengenerated' in "
+                f"{token_stall_seconds}s; vManage has not begun signing it, so it "
+                "will not recover. Marking for immediate regeneration."
+            )
+            if edge_name:
+                _mark_token_stalled(edge_name)
+            return state
+        if elapsed >= timeout_seconds:
+            out.warning(
+                f"vManage did not settle this chassis within {timeout_seconds}s "
+                f"(last state {state!r}); releasing the lock and deferring to the "
+                "fabric gate."
+            )
+            return state
+        time.sleep(poll_interval_seconds)
 
 
 # Fields on a `/dataservice/system/device/vedges` entry that indicate whether a
@@ -756,12 +859,41 @@ def _run_edge_automation_body(
             out.info(
                 "Root CA chain already installed this run; skipping SCP + install."
             )
-        # Serialize PAYG license generation + activation across worker threads to
-        # prevent vManage license allocator from receiving overlapping requests.
-        # Concurrent PAYG license generation triggers BYOL/PAYG mismatch races that
-        # leave edges in `certinstallfailed`. The gap after activate gives vManage
-        # time to process this CSR before the next edge generates its own license.
+        # Serialize the whole PAYG license -> activate -> cert-install cycle across
+        # worker threads, so only one chassis is ever in vManage's signing pipeline.
+        # A fixed post-activate gap is not enough: the CSR only reaches vManage
+        # 1m50s-3m after activation, and that lag varies by more than any sane gap
+        # value, so concurrent CSRs still collided and lost. Measured over a 3-edge
+        # run, every chassis with the pipeline to itself installed (3/3) and every
+        # chassis whose CSR overlapped another in-flight CSR failed (3/3).
         with _ACTIVATION_LOCK:
+            # Waiting for this lock can take many minutes (each holder keeps it
+            # until vManage settles its chassis), which is long enough for an idle
+            # SSH session to be dropped. Revalidate before touching the device:
+            # activating on a dead socket loses the whole cycle, and the generated
+            # chassis is left stuck at `tokengenerated` — which the missing-chassis
+            # fast-bail cannot detect, so the fabric gate then burns its full
+            # timeout on it.
+            net_connect = ensure_connection(
+                net_connect,
+                device_type,
+                config.mgmt_ip,
+                config.username,
+                config.password,
+            )
+            # vManage appears to reject the first cert install of a run if it comes
+            # too soon after the controllers sync (see the config comment). Pause
+            # once, before generating a licence, so the token isn't ageing while we
+            # wait. Retries are deliberately exempt — by then the pipeline is warm.
+            global _FIRST_ACTIVATION_DONE
+            if not _FIRST_ACTIVATION_DONE:
+                _FIRST_ACTIVATION_DONE = True
+                if settings.waits.before_first_activation:
+                    out.spinner_wait(
+                        "First activation of this run: letting vManage settle "
+                        f"({settings.waits.before_first_activation}s)...",
+                        settings.waits.before_first_activation,
+                    )
             licenses = generate_payg_licenses(settings.manager, 1)
             if not licenses:
                 out.error("Failed to generate PAYG license; aborting edge automation.")
@@ -776,16 +908,28 @@ def _run_edge_automation_body(
                 net_connect.disconnect()
                 raise SystemExit(1)
             out.spinner_wait(
-                "Holding lock to let vManage pick up this CSR before the next edge "
-                f"generates its license ({settings.waits.activation_gap}s)...",
+                "Settling after activation before polling vManage "
+                f"({settings.waits.activation_gap}s)...",
                 settings.waits.activation_gap,
             )
             _log_chassis_authorization_snapshot(
                 settings.manager, license_entry["chassis"], "post-activate-gap"
             )
+            _wait_for_chassis_cert_settled(
+                settings.manager, license_entry["chassis"], edge_name=label
+            )
 
         # Outside the lock: this is a read-only capture, so it must not extend the
-        # serialized activation window for the edges queued behind us.
+        # serialized activation window for the edges queued behind us. The cert-install
+        # hold above can leave this session idle for minutes, so re-establish it first
+        # rather than losing the capture to a stale socket.
+        net_connect = ensure_connection(
+            net_connect,
+            device_type,
+            config.mgmt_ip,
+            config.username,
+            config.password,
+        )
         _capture_post_activation_syslog(net_connect, license_entry["chassis"])
 
         if defer_cert_result:
@@ -1055,14 +1199,23 @@ def _wait_for_edges_in_fabric(
                         deadline[edge_name] = now + timeout_seconds
                 elif cert_state in _CERT_STATES_WHERE_EARLY_RETRY_MAY_HELP:
                     regen.append(edge_name)
+                elif _consume_token_stalled(edge_name):
+                    # The activation hold already established that vManage never
+                    # started signing this chassis. Waiting out this gate's timeout
+                    # as well would just double the delay.
+                    out.warning(
+                        f"{edge_name} stalled at 'tokengenerated' during activation; "
+                        "regenerating with a fresh chassis."
+                    )
+                    regen.append(edge_name)
 
-            # Fast-bail: genuine cert failures (certinstallfailed) regenerate now.
+            # Fast-bail: chassis known to be dead (cert install failed, or vManage
+            # never started signing) get a fresh chassis now.
             if regen:
                 increment_run_stat("edge_cert_early_retries", len(regen))
                 out.warning(
-                    "vManage reported cert install failure for: "
+                    "Regenerating a fresh chassis for: "
                     + ", ".join(sorted(regen))
-                    + "; regenerating those edges with a fresh chassis."
                 )
                 _dump_gate_failure_diagnostics(
                     edge_configs, edge_name_by_id, sorted(regen)
