@@ -20,6 +20,7 @@ from utils.netmiko import (
     push_cli_config,
     push_config_from_file,
     scp_copy_file,
+    wait_for_config_ready,
 )
 from utils.output import Output, thread_label
 from utils.run_stats import increment as increment_run_stat
@@ -798,6 +799,16 @@ def _run_edge_automation_body(
             out.error(f"No extra routing config available for {label}.")
             net_connect.disconnect()
             raise SystemExit(1)
+        # Same readiness gate the initial push uses: confd can still be busy here
+        # (this often runs right after cert onboarding, while vManage is pushing
+        # templates over NETCONF), and entering config mode then fails.
+        wait_for_config_ready(
+            net_connect,
+            config_mode_command="config-transaction",
+            poll_interval=settings.config_ready.poll,
+            timeout=settings.config_ready.timeout,
+            device_label=label,
+        )
         push_cli_config(
             net_connect,
             extra_routing_config,
@@ -1214,8 +1225,7 @@ def _wait_for_edges_in_fabric(
             if regen:
                 increment_run_stat("edge_cert_early_retries", len(regen))
                 out.warning(
-                    "Regenerating a fresh chassis for: "
-                    + ", ".join(sorted(regen))
+                    "Regenerating a fresh chassis for: " + ", ".join(sorted(regen))
                 )
                 _dump_gate_failure_diagnostics(
                     edge_configs, edge_name_by_id, sorted(regen)
