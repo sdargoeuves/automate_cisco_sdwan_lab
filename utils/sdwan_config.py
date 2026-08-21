@@ -88,6 +88,8 @@ class Waits:
     before_validator: int
     before_controller: int
     before_edge_activation: int
+    before_first_activation: int
+    token_stall_timeout: int
     after_payg_license: int
     csr_generation: int
     activation_gap: int
@@ -107,6 +109,7 @@ EDGE_DEVICE_TYPE: str = None
 root_ca_install: PollSpec = None  # root CA chain install poll
 fabric_gate: PollSpec = None  # control-connection convergence gate
 bfd_gate: PollSpec = None  # BFD convergence gate (poll/timeout only)
+cert_install_hold: PollSpec = None  # hold activation lock until cert state settles
 config_ready: PollSpec = None  # edge config-mode readiness probe
 controller_reboot: PollSpec = None  # vBond/vSmart post-reboot re-sync
 csr_file: PollSpec = None  # manager CSR file appearance
@@ -454,7 +457,7 @@ def load(variables_path=None) -> None:
     global ORG, USERNAME, DEFAULT_PASSWORD, UPDATED_PASSWORD, PORT, EDGE_DEVICE_TYPE
     global root_ca_install, fabric_gate, bfd_gate, config_ready, controller_reboot
     global csr_file, payg_activate, csr_generation, commit_retry, connect_retry, waits
-    global edge_retry_budget
+    global edge_retry_budget, cert_install_hold
     global RSA_KEY, ROOT_CERT, SIGNED_CERT, VALIDATOR_IP, CONTROLLER_IP
     global MANAGER_DEVICE, VALIDATOR_DEVICE, CONTROLLER_DEVICE
     global EDGE_GROUP, EDGE_DEVICES
@@ -498,6 +501,10 @@ def load(variables_path=None) -> None:
         poll=int(_timing.get("edge_bfd_convergence_poll_interval_seconds", 30)),
         timeout=int(_timing.get("edge_bfd_convergence_timeout_seconds", 300)),
     )
+    cert_install_hold = PollSpec(
+        poll=int(_timing.get("edge_cert_install_hold_poll_interval_seconds", 15)),
+        timeout=int(_timing.get("edge_cert_install_hold_timeout_seconds", 600)),
+    )
     # Per-edge cert-retry budget for the multi-edge deploy: how many fresh-chassis
     # attempts an edge gets before it's handed off to `edges failed --cert`.
     edge_retry_budget = int(_timing.get("edge_cert_retry_max_attempts", 4))
@@ -536,6 +543,12 @@ def load(variables_path=None) -> None:
         ),
         before_edge_activation=int(
             _timing.get("wait_before_activating_edge_seconds", 60)
+        ),
+        before_first_activation=int(
+            _timing.get("wait_before_first_edge_activation_seconds", 0)
+        ),
+        token_stall_timeout=int(
+            _timing.get("edge_cert_token_stall_timeout_seconds", 300)
         ),
         after_payg_license=int(
             _timing.get("wait_after_generating_payg_license_seconds", 90)

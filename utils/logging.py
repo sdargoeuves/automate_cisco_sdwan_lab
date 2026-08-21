@@ -35,8 +35,14 @@ def setup_logging(verbose: bool) -> None:
     debug_handler.rotator = _rotator
     debug_handler.namer = _namer
     debug_handler.setLevel(log_level)
+    # Debug-only: this is where netmiko's raw channel I/O lands, and it logs via a
+    # single global logger, so parallel edge threads would otherwise interleave
+    # with nothing to tell them apart. thread_label() names worker threads after
+    # the device. The info log and console keep the original format.
     debug_handler.setFormatter(
-        logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s")
+        logging.Formatter(
+            "%(asctime)s %(levelname)s [%(threadName)s] %(name)s: %(message)s"
+        )
     )
 
     console_handler = logging.StreamHandler()

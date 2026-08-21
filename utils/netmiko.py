@@ -1,6 +1,6 @@
 import sys
 import time
-from contextlib import suppress
+from contextlib import contextmanager, suppress
 from pathlib import Path
 
 from netmiko import ConnectHandler, ReadTimeout
@@ -147,6 +147,32 @@ def wait_for_config_ready(
         )
 
 
+@contextmanager
+def _read_timeout_override(net_connect, timeout: float | None):
+    """Temporarily force Netmiko's per-read timeout.
+
+    Netmiko's ``send_config_set(read_timeout=...)`` only covers the per-command
+    reads inside its loop. Entering config mode is a separate ``config_mode()``
+    call that takes no timeout, so its reads fall through to
+    ``read_until_pattern``'s hardcoded 10s default — which is what times out on a
+    loaded lab with "Pattern not detected: '<host>.*'". ``read_timeout_override``
+    is honoured inside ``read_until_pattern``, so it does reach config-mode entry.
+
+    Scoped and restored rather than set once at connect time, because the same
+    attribute is honoured by ``read_channel_timing`` and ``send_command``. Left on
+    globally it would shorten the commit's explicit 120s timeout to this value,
+    cap the 120s cert-diagnostic reads, and make ``wait_for_config_ready``'s
+    probes — which depend on failing fast to loop — take this long each attempt.
+    """
+    previous = getattr(net_connect, "read_timeout_override", None)
+    if timeout:
+        net_connect.read_timeout_override = timeout
+    try:
+        yield
+    finally:
+        net_connect.read_timeout_override = previous
+
+
 def push_cli_config(
     net_connect,
     config_commands,
@@ -162,7 +188,8 @@ def push_cli_config(
         config_commands: List of config commands or multi-line string
         config_mode_command: Optional config mode entry command
         commit_command: Optional commit command to run after config is sent
-        read_timeout: Optional Netmiko read timeout for config mode entry
+        read_timeout: Netmiko read timeout, applied to both the per-command reads
+            and (via read_timeout_override) config-mode entry
 
     Returns:
         str: Command output
@@ -177,12 +204,13 @@ def push_cli_config(
             line.strip() for line in config_commands.strip().split("\n") if line.strip()
         ]
 
-    output = net_connect.send_config_set(
-        config_commands,
-        config_mode_command=config_mode_command,
-        read_timeout=read_timeout,
-        exit_config_mode=not commit_command,
-    )
+    with _read_timeout_override(net_connect, read_timeout):
+        output = net_connect.send_config_set(
+            config_commands,
+            config_mode_command=config_mode_command,
+            read_timeout=read_timeout,
+            exit_config_mode=not commit_command,
+        )
 
     out.step("Committing configuration...")
     if commit_command:

@@ -43,13 +43,27 @@ def _thread_prefix() -> str:
 def thread_label(label: str):
     """Set a label for the current thread; any Output() created inside this
     block (and any pre-existing Output without an explicit prefix) will pick
-    it up. Restores the previous label on exit."""
+    it up. Restores the previous label on exit.
+
+    Also renames the OS thread, so third-party loggers we don't control — chiefly
+    netmiko, which logs raw channel I/O through one global logger — are
+    attributable to a device via ``%(threadName)s``. Without it, parallel edge
+    runs interleave into one undifferentiated stream. Worker threads only: the
+    main thread keeps its name.
+    """
     previous = _thread_prefix()
     _thread_local.prefix = label or ""
+    current = threading.current_thread()
+    previous_name = current.name
+    rename = label and current is not threading.main_thread()
+    if rename:
+        current.name = label.strip("[]") or previous_name
     try:
         yield
     finally:
         _thread_local.prefix = previous
+        if rename:
+            current.name = previous_name
 
 
 class Output:
