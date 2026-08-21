@@ -184,6 +184,45 @@ def _clear_sdwan_control_connections(net_connect) -> None:
     out.log_only(output)
 
 
+_EDGE_SYSLOG_COMMAND = (
+    "show logging | include CERT|VDAEMON|SYSTEM_LICENSE|CONTROL_CONN|CSR|ROOT_CERT"
+)
+
+_CERT_DIAGNOSTIC_COMMANDS = [
+    "show sdwan control connections",
+    "show sdwan control connection-history",
+    "show sdwan certificate installed",
+    "show sdwan certificate validity",
+    _EDGE_SYSLOG_COMMAND,
+]
+
+
+def _run_edge_diagnostic_commands(net_connect, commands: list[str]) -> None:
+    """Run diagnostic commands and log each one's output under its own header.
+
+    Uses ``send_command`` (waits for the device prompt) rather than
+    ``send_command_timing`` (returns once output goes briefly idle). With
+    ``send_command_timing`` a slow command returns only its echo, and the real
+    output is then picked up by the *next* command's read — which silently
+    shifted every diagnostic block one header out of place in the log.
+    """
+    for command in commands:
+        try:
+            output = net_connect.send_command(
+                command,
+                strip_prompt=False,
+                strip_command=False,
+                read_timeout=settings.waits.diagnostic_read_timeout,
+            )
+        except Exception as exc:  # pragma: no cover - defensive diagnostic path
+            out.log_only(
+                f"Diagnostic command failed: {command}: {exc}",
+                level="warning",
+            )
+            continue
+        out.log_only(f"=== Edge cert diagnostic: {command} ===\n{output}")
+
+
 def _capture_edge_cert_diagnostics(
     net_connect,
     chassis_id: str,
@@ -194,30 +233,19 @@ def _capture_edge_cert_diagnostics(
         "Capturing edge certificate diagnostics in the log "
         f"(chassis {chassis_id}, vManage state {cert_state!r})."
     )
-    commands = [
-        "show sdwan control connections",
-        "show sdwan control connection-history",
-        "show sdwan certificate installed",
-        "show sdwan certificate validity",
-        (
-            "show logging | include "
-            "CERT|VDAEMON|SYSTEM_LICENSE|CONTROL_CONN|CSR|ROOT_CERT"
-        ),
-    ]
-    for command in commands:
-        try:
-            output = net_connect.send_command_timing(
-                command,
-                strip_prompt=False,
-                strip_command=False,
-            )
-        except Exception as exc:  # pragma: no cover - defensive diagnostic path
-            out.log_only(
-                f"Diagnostic command failed: {command}: {exc}",
-                level="warning",
-            )
-            continue
-        out.log_only(f"=== Edge cert diagnostic: {command} ===\n{output}")
+    _run_edge_diagnostic_commands(net_connect, _CERT_DIAGNOSTIC_COMMANDS)
+
+
+def _capture_post_activation_syslog(net_connect, chassis_id: str) -> None:
+    """Log the edge's cert/licence syslog right after activation, always.
+
+    Captured for every edge whether it goes on to succeed or fail, so failures
+    have a successful run to be compared against. Without this baseline, signals
+    like ``SYSTEM_LICENSE_MISMATCH`` only ever appear in failure logs and look
+    causal when they may just be normal activation noise.
+    """
+    out.log_only(f"Post-activation syslog snapshot for chassis {chassis_id}:")
+    _run_edge_diagnostic_commands(net_connect, [_EDGE_SYSLOG_COMMAND])
 
 
 def _is_edge_in_fabric(manager_config, system_ip: str) -> bool:
@@ -755,6 +783,11 @@ def _run_edge_automation_body(
             _log_chassis_authorization_snapshot(
                 settings.manager, license_entry["chassis"], "post-activate-gap"
             )
+
+        # Outside the lock: this is a read-only capture, so it must not extend the
+        # serialized activation window for the edges queued behind us.
+        _capture_post_activation_syslog(net_connect, license_entry["chassis"])
+
         if defer_cert_result:
             out.info(
                 "PAYG activation completed; deferring final success check to "

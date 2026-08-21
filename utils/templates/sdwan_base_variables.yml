@@ -67,7 +67,12 @@ timing:
   # `vedge_cloud activate`), then this gap is observed before the next edge
   # activates — gives vManage time to start processing the CSR so concurrent
   # CSRs don't race on its side. Everything else stays parallel.
-  edge_activation_gap_seconds: 30
+  #
+  # Raised 30 -> 60 after a 3-edge run where the only edge to install its cert
+  # first time was the one that happened to wait ~60s longer than the others
+  # (it blocked on this lock); both edges that activated with little settle time
+  # failed 4 attempts each. Costs (N-1) x 30s extra per run.
+  edge_activation_gap_seconds: 60
 
   # Post-activation device certificate validity check
   # (`show sdwan certificate validity` returns valid once vManage has signed and pushed
@@ -111,6 +116,10 @@ timing:
 
   # Netmiko — config push
   netmiko_increased_read_timeout_seconds: 60
+
+  # Edge cert diagnostics — `show sdwan ...` can take a while (>30s)
+  # Read-only, and a timeout only costs a logged warning
+  edge_diagnostic_read_timeout_seconds: 120
 
   # Netmiko — commit
   netmiko_commit_read_timeout_seconds: 120

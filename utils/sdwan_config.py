@@ -93,6 +93,7 @@ class Waits:
     activation_gap: int
     edge_stagger: float
     netmiko_read_timeout: int
+    diagnostic_read_timeout: int
 
 
 # Module-level variables — populated by load()
@@ -540,10 +541,13 @@ def load(variables_path=None) -> None:
             _timing.get("wait_after_generating_payg_license_seconds", 90)
         ),
         csr_generation=int(_timing.get("wait_csr_generation_seconds", 30)),
-        activation_gap=int(_timing.get("edge_activation_gap_seconds", 30)),
+        activation_gap=int(_timing.get("edge_activation_gap_seconds", 60)),
         edge_stagger=float(_timing.get("edge_stagger_seconds", 2.0)),
         netmiko_read_timeout=int(
             _timing.get("netmiko_increased_read_timeout_seconds", 30)
+        ),
+        diagnostic_read_timeout=int(
+            _timing.get("edge_diagnostic_read_timeout_seconds", 120)
         ),
     )
 
