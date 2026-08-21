@@ -233,13 +233,20 @@ def _run_edge_diagnostic_commands(net_connect, commands: list[str]) -> None:
     ``send_command_timing`` a slow command returns only its echo, and the real
     output is then picked up by the *next* command's read — which silently
     shifted every diagnostic block one header out of place in the log.
+
+    ``expect_string`` is pinned to the device prompt because ``send_command``
+    otherwise terminates on the echoed command, and the long ``show logging |
+    include ...`` line echoes back inconsistently (terminal wrapping), which lost
+    that capture on roughly one edge per run.
     """
+    prompt_pattern = re.escape(getattr(net_connect, "base_prompt", "") or "") or None
     for command in commands:
         try:
             output = net_connect.send_command(
                 command,
                 strip_prompt=False,
                 strip_command=False,
+                expect_string=prompt_pattern,
                 read_timeout=settings.waits.diagnostic_read_timeout,
             )
         except Exception as exc:  # pragma: no cover - defensive diagnostic path
