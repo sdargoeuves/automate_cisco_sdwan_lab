@@ -93,6 +93,33 @@ timing:
   edge_cert_install_hold_poll_interval_seconds: 15
   edge_cert_install_hold_timeout_seconds: 600
 
+  # Infrastructure failures inside an edge worker — SCP of the root cert from the
+  # validator, the root-cert install, PAYG generation. These are retried in place
+  # after a wait rather than by regenerating a chassis, which cannot fix any of
+  # them. Once the budget is spent the run stops and names the real error instead
+  # of spending the chassis-retry budget rediscovering it.
+  edge_transient_retry_max_attempts: 3
+  edge_transient_retry_wait_seconds: 60
+
+  # Whether to serialize the activate -> cert-install cycle across edge workers
+  # (the lock described above).
+  #
+  # Measured over 37 deploys (18 serial / 19 parallel, two labs, interleaved),
+  # 2026-08-25 to 08-26:
+  #   serial    17/18 clean (94%)   1.43 chassis regenerations per run   ~45 min
+  #   parallel  15/19 clean (79%)   1.86 chassis regenerations per run   ~31 min
+  # Serial came out ahead in every batch and on every measure — never by much,
+  # but never behind either. An interim reading at 24 runs suggested the modes
+  # were equal and the default was briefly flipped to false; the larger sample
+  # did not support that, so it is back to true.
+  #
+  # After the netmiko read-timeout fix the speed gap narrowed to ~6 min
+  # (34 vs 28), which is a cheap price for the reliability difference.
+  #
+  # Set false to activate concurrently. Overridable per-run via the
+  # SDWAN_SERIALIZE_ACTIVATION environment variable.
+  edge_serialize_activation: true
+
   # Sub-timeout applied *only* while a chassis is still at `tokengenerated`, i.e.
   # vManage has not even begun signing. This is not a shorter version of the hold
   # timeout above: a chassis that has reached `csrgenerated` still gets the full
@@ -145,8 +172,14 @@ timing:
   netmiko_connect_retry_max_seconds: 900
   netmiko_connect_lockout_retry_interval_seconds: 180
 
-  # Netmiko — config push
-  netmiko_increased_read_timeout_seconds: 60
+  # Netmiko — config push.
+  # 60s was too tight: `Pattern not detected` read timeouts during the initial
+  # config push show up in 11 runs between 2026-08-19 and 2026-08-26, in both
+  # serial and parallel modes. Measured on a contended host, three concurrent
+  # edges took 42s / 70s / 83s to push — the two behind the first blew the
+  # limit through no fault of the device. This is a ceiling, not a delay, so a
+  # larger value costs nothing on a healthy run.
+  netmiko_increased_read_timeout_seconds: 180
 
   # Edge cert diagnostics — `show sdwan ...` can take a while (>30s)
   # Read-only, and a timeout only costs a logged warning
