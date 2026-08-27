@@ -1,3 +1,4 @@
+import os
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -110,10 +111,21 @@ root_ca_install: PollSpec = None  # root CA chain install poll
 fabric_gate: PollSpec = None  # control-connection convergence gate
 bfd_gate: PollSpec = None  # BFD convergence gate (poll/timeout only)
 cert_install_hold: PollSpec = None  # hold activation lock until cert state settles
+serial_push: PollSpec = None  # "Push WAN Edge List" task completion
+# Serialize the PAYG activate -> cert-install cycle across edge worker threads.
+# Predates the explicit WAN Edge list push: with the controllers unaware of a
+# freshly generated chassis, concurrent CSRs collided and lost. Kept as a knob
+# so the two behaviours can be compared, and so there is a way back if a
+# concurrent run regresses.
+serialize_activation: bool = None
 config_ready: PollSpec = None  # edge config-mode readiness probe
 controller_reboot: PollSpec = None  # vBond/vSmart post-reboot re-sync
 csr_file: PollSpec = None  # manager CSR file appearance
 payg_activate: RetrySpec = None  # edge PAYG vedge_cloud activate retry
+# Infrastructure failures inside an edge worker (SCP from the validator, root
+# cert install, PAYG generation). Retried in place after a wait rather than by
+# regenerating a chassis, which cannot fix any of them.
+edge_transient_retry: RetrySpec = None
 csr_generation: RetrySpec = None  # manager CSR generation API retry
 commit_retry: CommitRetry = None  # netmiko commit retry
 connect_retry: ConnectRetry = None  # netmiko initial-connect retry
@@ -457,7 +469,8 @@ def load(variables_path=None) -> None:
     global ORG, USERNAME, DEFAULT_PASSWORD, UPDATED_PASSWORD, PORT, EDGE_DEVICE_TYPE
     global root_ca_install, fabric_gate, bfd_gate, config_ready, controller_reboot
     global csr_file, payg_activate, csr_generation, commit_retry, connect_retry, waits
-    global edge_retry_budget, cert_install_hold
+    global edge_retry_budget, cert_install_hold, serial_push, serialize_activation
+    global edge_transient_retry
     global RSA_KEY, ROOT_CERT, SIGNED_CERT, VALIDATOR_IP, CONTROLLER_IP
     global MANAGER_DEVICE, VALIDATOR_DEVICE, CONTROLLER_DEVICE
     global EDGE_GROUP, EDGE_DEVICES
@@ -505,6 +518,23 @@ def load(variables_path=None) -> None:
         poll=int(_timing.get("edge_cert_install_hold_poll_interval_seconds", 15)),
         timeout=int(_timing.get("edge_cert_install_hold_timeout_seconds", 600)),
     )
+    # The push itself completed in ~2s when measured by hand, so this only needs
+    # to be generous enough to cover a busy Manager, not to absorb a real wait.
+    serial_push = PollSpec(
+        poll=int(_timing.get("serial_push_poll_interval_seconds", 3)),
+        timeout=int(_timing.get("serial_push_timeout_seconds", 120)),
+    )
+    # Accept YAML booleans and the string spellings: a quoted "false" is truthy
+    # to bool(), which would silently leave serialization on.
+    _serialize = _timing.get("edge_serialize_activation", True)
+    # Env override exists for the repeat-test harness, which alternates modes
+    # across runs. `deploy` rewrites variables.yml from base.yml on every run, so
+    # a harness cannot simply edit the generated file — and editing base.yml
+    # would leave the user's config changed if the batch is interrupted.
+    _serialize = os.environ.get("SDWAN_SERIALIZE_ACTIVATION", _serialize)
+    if isinstance(_serialize, str):
+        _serialize = _serialize.strip().lower() not in {"false", "no", "0", "off"}
+    serialize_activation = bool(_serialize)
     # Per-edge cert-retry budget for the multi-edge deploy: how many fresh-chassis
     # attempts an edge gets before it's handed off to `edges failed --cert`.
     edge_retry_budget = int(_timing.get("edge_cert_retry_max_attempts", 4))
@@ -523,6 +553,10 @@ def load(variables_path=None) -> None:
     csr_generation = RetrySpec(
         max_attempts=int(_timing.get("csr_generation_max_attempts", 3)),
         wait=int(_timing.get("csr_generation_retry_wait_seconds", 5)),
+    )
+    edge_transient_retry = RetrySpec(
+        max_attempts=int(_timing.get("edge_transient_retry_max_attempts", 3)),
+        wait=int(_timing.get("edge_transient_retry_wait_seconds", 60)),
     )
     commit_retry = CommitRetry(
         max_attempts=int(_timing.get("netmiko_commit_retry_attempts", 2)),

@@ -1,8 +1,8 @@
 ---
 message: "SDWAN lab..."
 
-defaults.devices.eos.clab.image: "ceos:4.29.9.1M"
-defaults.devices.linux.clab.image: "ubuntu/nginx"
+defaults.devices.eos.clab.image: "ceos:4.35.3F"
+defaults.devices.linux.clab.image: "debian:trixie-slim"
 provider: clab
 
 groups:
