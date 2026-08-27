@@ -12,7 +12,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from utils import sdwan_config as settings
-from utils.manager_api_status import get_edge_health_items
+from utils.manager_api_status import get_edge_health_items, wait_for_task
 from utils.netmiko import (
     bootstrap_initial_config,
     connect_to_device,
@@ -28,6 +28,61 @@ from utils.run_stats import phase
 from utils.sdwan_sdk import SdkCallError, sdk_call_json
 
 out = Output(__name__)
+
+
+class EdgeError(RuntimeError):
+    """Base for edge worker failures.
+
+    The subclass tells the caller how to respond. Before these existed every
+    failure raised a bare ``SystemExit(1)``, so the retry loop could not tell
+    "vManage did not sign the cert" from "the box is unreachable" and answered
+    both with a fresh chassis — which only helps the former.
+    """
+
+
+class EdgeTransientError(EdgeError):
+    """Infrastructure hiccup: worth retrying the same edge after a wait.
+
+    SCP to the validator, the root-cert install, PAYG generation. A fresh
+    chassis cannot help with any of these, but time often does — the validator
+    may still be booting, or VPN 0 may not have converged yet.
+    """
+
+
+class EdgeCertError(EdgeError):
+    """Certificate did not converge: the edge needs a fresh chassis."""
+
+
+class EdgeFatalError(EdgeError):
+    """Cannot succeed on retry — a precondition is wrong.
+
+    Retrying is not patience, it is just a slower way to report the same thing,
+    so these abort the run with an actionable message instead.
+    """
+
+
+# Edges that hit an unrecoverable precondition (or exhausted their transient
+# budget). The fabric gate regenerates a chassis for any edge it finds without
+# one, which for these edges would be four more pointless rounds — so the run
+# is aborted before the gates instead.
+_FATAL_EDGES: dict[str, str] = {}
+_FATAL_EDGES_LOCK = threading.Lock()
+# Last failure message per edge, so the run can end by naming what actually went
+# wrong instead of the generic "retry budget exhausted".
+_LAST_EDGE_ERROR: dict[str, str] = {}
+
+
+def _mark_edge_fatal(edge_name: str, reason: str) -> None:
+    with _FATAL_EDGES_LOCK:
+        _FATAL_EDGES[edge_name] = reason
+
+
+def _drain_fatal_edges() -> dict[str, str]:
+    with _FATAL_EDGES_LOCK:
+        fatal = dict(_FATAL_EDGES)
+        _FATAL_EDGES.clear()
+        return fatal
+
 
 # Serializes the `vedge_cloud activate` step across edge worker threads. Only
 # one edge runs activation at a time; a configurable gap is observed after each
@@ -46,7 +101,9 @@ _LAST_REPORTED_CONNS_BY_EDGE: dict[str, int | None] = {}
 # once per edge instead of re-doing SCP + install + poll on every cert retry.
 _ROOT_CERT_INSTALLED: set[str] = set()
 # Whether any edge has activated yet this process. Guards the one-off
-# pre-first-activation pause; only ever touched while holding _ACTIVATION_LOCK.
+# pre-first-activation pause. Unsynchronized when `edge_serialize_activation` is
+# off: several workers can then read it as False and each observe the pause. They
+# do so concurrently, so the cost is one pause in wall-clock terms, not several.
 _FIRST_ACTIVATION_DONE = False
 # Edges whose latest chassis stalled at `tokengenerated` — vManage never started
 # signing it, so it needs a fresh chassis. Set by the activation hold, consumed by
@@ -136,6 +193,53 @@ def generate_payg_licenses(
         wait_seconds,
     )
     return licenses
+
+
+def push_wan_edge_list(manager_config) -> bool:
+    """Push the WAN Edge serial list from vManage to vBond and vSmart.
+
+    `generate-payg` only records the new chassis in vManage's own database. The
+    controllers authorize an edge against their *local* serial list file, which
+    is only refreshed by this action ("Send to Controllers" in the UI). Without
+    it, an edge that activates a freshly generated chassis presents a serial
+    vBond has never heard of, and vBond tears the session down with SERNTPRES.
+
+    vManage does appear to push on its own eventually, which is why edges
+    onboard at all today — but the timing is not ours to control, and that
+    implicit wait is what the activation lock and the fixed post-activation gaps
+    have really been absorbing.
+
+    Cheap (~2s) and idempotent: pushing an already-current list is a no-op, so
+    this is safe to call before every activation. Returns True if all three
+    controllers processed the list.
+    """
+    out.step("Pushing WAN Edge serial list to the controllers...")
+    try:
+        # The action is selected by query string, which sdk_call_json passes
+        # through as part of the final path segment.
+        response = sdk_call_json(
+            manager_config,
+            "POST",
+            "/dataservice/certificate/vedge/list?action=push",
+            data={},
+        )
+    except SdkCallError as exc:
+        out.warning(f"WAN Edge list push failed: {exc}")
+        return False
+
+    task_id = (response or {}).get("id")
+    if not task_id:
+        out.warning("WAN Edge list push returned no task id.")
+        out.log_only(f"Push response: {response}")
+        return False
+
+    return wait_for_task(
+        manager_config,
+        task_id,
+        poll_interval_seconds=settings.serial_push.poll,
+        timeout_seconds=settings.serial_push.timeout,
+        out=out,
+    )
 
 
 def _clear_logs(net_connect) -> None:
@@ -703,19 +807,44 @@ def run_edge_automation(
     defer_cert_result: bool = False,
 ) -> None:
     label = edge_name or "edge"
+    max_attempts = settings.edge_transient_retry.max_attempts
+    wait_seconds = settings.edge_transient_retry.wait
     # Set a thread-local label so every Output() in this worker — including
     # shared helpers in utils/netmiko — automatically prefixes its lines.
     with thread_label(f"[{label}]"):
-        _run_edge_automation_body(
-            config,
-            initial_config,
-            config_file,
-            cert,
-            extra_routing,
-            device_type,
-            label,
-            defer_cert_result,
-        )
+        for attempt in range(1, max_attempts + 1):
+            try:
+                _run_edge_automation_body(
+                    config,
+                    initial_config,
+                    config_file,
+                    cert,
+                    extra_routing,
+                    device_type,
+                    label,
+                    defer_cert_result,
+                )
+                return
+            except EdgeTransientError as exc:
+                increment_run_stat("edge_transient_retries")
+                if attempt >= max_attempts:
+                    # Patience is spent. A fresh chassis would not have helped
+                    # with this class of failure, so stop the run rather than
+                    # let the fabric gate regenerate one.
+                    reason = f"{exc} (after {max_attempts} attempts)"
+                    _mark_edge_fatal(label, reason)
+                    out.error(reason)
+                    raise EdgeFatalError(reason) from exc
+                out.warning(f"{exc}")
+                out.spinner_wait(
+                    f"Transient failure (attempt {attempt}/{max_attempts}); "
+                    f"retrying in {wait_seconds}s",
+                    wait_seconds,
+                )
+            except EdgeFatalError as exc:
+                _mark_edge_fatal(label, str(exc))
+                out.error(str(exc))
+                raise
 
 
 def _run_edge_automation_body(
@@ -774,6 +903,17 @@ def _run_edge_automation_body(
                 config.default_password,
                 exit_on_failure=True,  # Exit if both passwords fail
             )
+            # Still on the factory password means the initial config was never
+            # pushed, so the edge has no VPN 0 interfaces and cannot reach the
+            # validator. The cert flow would fail at the root-cert SCP and then
+            # spend the whole chassis-retry budget rediscovering that.
+            if cert:
+                net_connect.disconnect()
+                raise EdgeFatalError(
+                    f"{label} is still on its default password, so the initial "
+                    "config has not been pushed and the validator is "
+                    "unreachable. Run with --first-boot instead of --cert."
+                )
 
     if config_file:
         out.header(f"EDGE - {label}: Config File")
@@ -803,9 +943,11 @@ def _run_edge_automation_body(
         )
         extra_routing_config = _get_edge_extra_routing_config(label)
         if not extra_routing_config:
-            out.error(f"No extra routing config available for {label}.")
             net_connect.disconnect()
-            raise SystemExit(1)
+            raise EdgeFatalError(
+                f"No extra routing config defined for {label}; add one under "
+                "devices.edges in the variables file."
+            )
         # Same readiness gate the initial push uses: confd can still be busy here
         # (this often runs right after cert onboarding, while vManage is pushing
         # templates over NETCONF), and entering config mode then fails.
@@ -861,17 +1003,21 @@ def _run_edge_automation_body(
                 description="Copying root certificate from validator via SCP...",
             ):
                 net_connect.disconnect()
-                raise SystemExit(1)
+                raise EdgeTransientError(
+                    f"Could not copy {settings.ROOT_CERT} from the validator at "
+                    f"{config.validator_ip}. The edge has no route to it yet, or "
+                    "the validator is not serving SCP."
+                )
             _install_root_cert(net_connect)
             if not _wait_for_edge_cert(net_connect):
                 out.step("Re-installing root certificate with 'new-roots' option...")
                 _install_root_cert(net_connect, use_new_roots=True)
                 if not _wait_for_edge_cert(net_connect):
-                    out.error(
-                        "Device certificate still not installed; aborting activation."
-                    )
                     net_connect.disconnect()
-                    raise SystemExit(1)
+                    raise EdgeTransientError(
+                        "Root CA chain did not reach Installed, with or without "
+                        "'new-roots'; not activating."
+                    )
             _ROOT_CERT_INSTALLED.add(label)
         else:
             out.info(
@@ -884,7 +1030,19 @@ def _run_edge_automation_body(
         # value, so concurrent CSRs still collided and lost. Measured over a 3-edge
         # run, every chassis with the pipeline to itself installed (3/3) and every
         # chassis whose CSR overlapped another in-flight CSR failed (3/3).
-        with _ACTIVATION_LOCK:
+        #
+        # That measurement predates `push_wan_edge_list`. The collisions were most
+        # likely edges racing vManage's implicit push of the serial list rather than
+        # racing each other, in which case pushing explicitly removes the need to
+        # serialize at all. Set `edge_serialize_activation: false` to run the
+        # activations concurrently and find out.
+        if not settings.serialize_activation:
+            out.info("Activation serialization disabled; activating concurrently.")
+        with (
+            _ACTIVATION_LOCK
+            if settings.serialize_activation
+            else contextlib.nullcontext()
+        ):
             # Waiting for this lock can take many minutes (each holder keeps it
             # until vManage settles its chassis), which is long enough for an idle
             # SSH session to be dropped. Revalidate before touching the device:
@@ -914,17 +1072,30 @@ def _run_edge_automation_body(
                     )
             licenses = generate_payg_licenses(settings.manager, 1)
             if not licenses:
-                out.error("Failed to generate PAYG license; aborting edge automation.")
                 net_connect.disconnect()
-                raise SystemExit(1)
+                raise EdgeTransientError(
+                    "Manager returned no PAYG licence. Check the organization "
+                    "name if this persists across retries."
+                )
             license_entry = licenses[0]
             _record_latest_edge_chassis(label, license_entry["chassis"])
+            # Make the controllers aware of this chassis BEFORE the edge presents
+            # it. Not fatal if it fails — vManage pushes on its own eventually,
+            # which is the behaviour we relied on before this call existed.
+            if not push_wan_edge_list(settings.manager):
+                increment_run_stat("edge_serial_push_failures")
+                out.warning(
+                    "Continuing without a confirmed serial-list push; the edge may "
+                    "hit SERNTPRES if vManage has not pushed on its own yet."
+                )
             _log_chassis_authorization_snapshot(
                 settings.manager, license_entry["chassis"], "pre-activate"
             )
             if not _activate_edge_license(net_connect, license_entry):
                 net_connect.disconnect()
-                raise SystemExit(1)
+                raise EdgeCertError(
+                    f"PAYG activation failed for chassis {license_entry['chassis']}."
+                )
             out.spinner_wait(
                 "Settling after activation before polling vManage "
                 f"({settings.waits.activation_gap}s)...",
@@ -933,9 +1104,13 @@ def _run_edge_automation_body(
             _log_chassis_authorization_snapshot(
                 settings.manager, license_entry["chassis"], "post-activate-gap"
             )
-            _wait_for_chassis_cert_settled(
-                settings.manager, license_entry["chassis"], edge_name=label
-            )
+            # Only meaningful while serializing: its purpose is to keep the lock
+            # until vManage is done with this chassis. Running it unserialized just
+            # duplicates the fabric gate, which already polls the same states.
+            if settings.serialize_activation:
+                _wait_for_chassis_cert_settled(
+                    settings.manager, license_entry["chassis"], edge_name=label
+                )
 
         # Outside the lock: this is a read-only capture, so it must not extend the
         # serialized activation window for the edges queued behind us. The cert-install
@@ -966,9 +1141,10 @@ def _run_edge_automation_body(
                 settings.fabric_gate.max_attempts,
                 device_type,
             ):
-                out.error("Edge did not join the fabric after PAYG activation.")
                 net_connect.disconnect()
-                raise SystemExit(1)
+                raise EdgeCertError(
+                    "Edge did not join the fabric after PAYG activation."
+                )
 
     net_connect.disconnect()
     out.success("Disconnected from Edge")
@@ -1015,7 +1191,12 @@ def _run_edges_worker_phase(
                 future.result()
             except (SystemExit, Exception) as exc:
                 failed.append(name)
-                out.error(f"[{name}] failed: {exc}")
+                # A bare SystemExit stringifies as its exit code ("1"), which is
+                # what made every failure read the same. The typed errors carry
+                # a real message; keep the class name so the tier is visible.
+                detail = str(exc) or exc.__class__.__name__
+                _LAST_EDGE_ERROR[name] = detail
+                out.error(f"[{name}] failed: {detail}")
     return failed
 
 
@@ -1365,9 +1546,24 @@ def run_edges_automation(
             defer_cert_result=use_bfd_convergence_gate,
         )
 
+        # Unrecoverable preconditions (and exhausted transient budgets) are
+        # settled before the gates get involved: the fabric gate regenerates a
+        # chassis for any edge it finds without one, which for these edges is
+        # only a slower way to report the same failure.
+        fatal = _drain_fatal_edges()
+        if fatal:
+            out.error("Edge automation cannot continue:")
+            for name, reason in sorted(fatal.items()):
+                out.error(f"  {name}: {reason}")
+            raise SystemExit(1)
+
         if not cert:
             if failed:
-                out.error(f"Edge automation failed for: {', '.join(sorted(failed))}")
+                out.error("Edge automation failed for:")
+                for name in sorted(failed):
+                    out.error(
+                        f"  {name}: {_LAST_EDGE_ERROR.get(name, 'unknown error')}"
+                    )
                 raise SystemExit(1)
             return
 
@@ -1412,10 +1608,11 @@ def run_edges_automation(
             name for name in retry_names if edge_attempts.get(name, 0) >= max_attempts
         ]
         if exhausted_retry_names:
-            out.error(
-                "Edge fabric convergence failed after per-edge retry budget "
-                "was exhausted for: " + ", ".join(sorted(exhausted_retry_names))
-            )
+            out.error("Edge fabric convergence failed after the per-edge retry budget:")
+            for name in sorted(exhausted_retry_names):
+                last_error = _LAST_EDGE_ERROR.get(name)
+                suffix = f": {last_error}" if last_error else ""
+                out.error(f"  {name} ({edge_attempts.get(name, 0)} attempts){suffix}")
             raise SystemExit(1)
 
         phase_edge_configs = [

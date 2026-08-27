@@ -1,5 +1,60 @@
+import time
+
 from utils.output import Output
 from utils.sdwan_sdk import SdkCallError, sdk_call_json
+
+
+def wait_for_task(
+    manager_config,
+    task_id: str,
+    poll_interval_seconds: int,
+    timeout_seconds: int,
+    out: Output | None = None,
+) -> bool:
+    """Poll a vManage async task to completion.
+
+    vManage returns a task id for long-running actions and reports progress at
+    ``/device/action/status/{id}``. ``summary.status`` goes ``in_progress`` ->
+    ``done``/``failure``; ``summary.count`` breaks the per-device outcomes down
+    (e.g. ``{"Success": 3}``).
+
+    Returns True only if the task finished with every device succeeding.
+    """
+    out = out or Output(__name__)
+    start = time.time()
+    while True:
+        try:
+            response = sdk_call_json(
+                manager_config, "GET", f"/dataservice/device/action/status/{task_id}"
+            )
+        except SdkCallError as exc:
+            out.log_only(f"Task {task_id} status query failed: {exc}", level="warning")
+            return False
+
+        summary = (response or {}).get("summary") or {}
+        status = str(summary.get("status", "")).lower()
+        counts = summary.get("count") or {}
+        if status == "done":
+            failures = {k: v for k, v in counts.items() if k.lower() != "success"}
+            if failures:
+                out.warning(f"Task {summary.get('name', task_id)} reported {failures}")
+                return False
+            out.success(
+                f"{summary.get('name', task_id)}: {counts.get('Success', 0)} succeeded"
+            )
+            return True
+        if status in {"failure", "failed"}:
+            out.warning(f"Task {summary.get('name', task_id)} failed: {counts}")
+            return False
+
+        if time.time() - start >= timeout_seconds:
+            out.warning(
+                f"Task {summary.get('name', task_id)} did not finish within "
+                f"{timeout_seconds}s (last status {status!r})."
+            )
+            return False
+
+        time.sleep(poll_interval_seconds)
 
 
 def _format_cell(value: object) -> str:

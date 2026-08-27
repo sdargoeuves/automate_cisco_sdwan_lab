@@ -80,3 +80,87 @@ def test_edges_without_bfd_selects_zero_or_missing_bfd(monkeypatch):
         [edge1, edge2, edge3],
         edge_name_by_id,
     ) == ["edge2", "edge3"]
+
+
+def _stub_transient_retry(monkeypatch, max_attempts=3, wait=0):
+    monkeypatch.setattr(
+        settings,
+        "edge_transient_retry",
+        settings.RetrySpec(max_attempts=max_attempts, wait=wait),
+        raising=False,
+    )
+    monkeypatch.setattr(sdwan_edges.out, "spinner_wait", lambda *a, **k: None)
+    sdwan_edges._drain_fatal_edges()
+
+
+def test_transient_error_is_retried_then_succeeds(monkeypatch):
+    _stub_transient_retry(monkeypatch)
+    calls = []
+
+    def body(*args, **kwargs):
+        calls.append(1)
+        if len(calls) < 3:
+            raise sdwan_edges.EdgeTransientError("validator not up yet")
+
+    monkeypatch.setattr(sdwan_edges, "_run_edge_automation_body", body)
+    sdwan_edges.run_edge_automation(_edge("10.0.0.1"), edge_name="edge1")
+
+    assert len(calls) == 3
+    assert sdwan_edges._drain_fatal_edges() == {}
+
+
+def test_exhausted_transient_budget_becomes_fatal(monkeypatch):
+    _stub_transient_retry(monkeypatch, max_attempts=2)
+
+    def body(*args, **kwargs):
+        raise sdwan_edges.EdgeTransientError("scp unreachable")
+
+    monkeypatch.setattr(sdwan_edges, "_run_edge_automation_body", body)
+    try:
+        sdwan_edges.run_edge_automation(_edge("10.0.0.1"), edge_name="edge1")
+    except sdwan_edges.EdgeFatalError as exc:
+        assert "scp unreachable" in str(exc)
+    else:
+        raise AssertionError("expected EdgeFatalError")
+
+    assert "edge1" in sdwan_edges._drain_fatal_edges()
+
+
+def test_fatal_error_is_not_retried(monkeypatch):
+    _stub_transient_retry(monkeypatch)
+    calls = []
+
+    def body(*args, **kwargs):
+        calls.append(1)
+        raise sdwan_edges.EdgeFatalError("still on default password")
+
+    monkeypatch.setattr(sdwan_edges, "_run_edge_automation_body", body)
+    try:
+        sdwan_edges.run_edge_automation(_edge("10.0.0.1"), edge_name="edge1")
+    except sdwan_edges.EdgeFatalError:
+        pass
+    else:
+        raise AssertionError("expected EdgeFatalError")
+
+    assert calls == [1]
+    assert sdwan_edges._drain_fatal_edges() == {"edge1": "still on default password"}
+
+
+def test_cert_error_propagates_without_transient_retry(monkeypatch):
+    _stub_transient_retry(monkeypatch)
+    calls = []
+
+    def body(*args, **kwargs):
+        calls.append(1)
+        raise sdwan_edges.EdgeCertError("cert did not converge")
+
+    monkeypatch.setattr(sdwan_edges, "_run_edge_automation_body", body)
+    try:
+        sdwan_edges.run_edge_automation(_edge("10.0.0.1"), edge_name="edge1")
+    except sdwan_edges.EdgeCertError:
+        pass
+    else:
+        raise AssertionError("expected EdgeCertError")
+
+    assert calls == [1]
+    assert sdwan_edges._drain_fatal_edges() == {}
