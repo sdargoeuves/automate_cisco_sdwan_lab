@@ -1,7 +1,7 @@
 ---
 message: "SDWAN lab..."
 
-defaults.devices.eos.clab.image: "ceos:4.35.3F"
+defaults.devices.eos.clab.image: "ceos:4.35.6M"
 defaults.devices.linux.clab.image: "debian:trixie-slim"
 provider: clab
 
@@ -63,29 +63,25 @@ nodes:
       type: manager
     device: linux
     image: vrnetlab/cisco_sdwan-manager:20.16.1
-    # image: vrnetlab/cisco_sdwan-manager:20.15.4.1
-    # image: vrnetlab/cisco_sdwan-manager:20.15.1
   sdwan-controller:
     clab:
       type: controller
     device: linux
     image: vrnetlab/cisco_sdwan-controller:20.16.1
-    # image: vrnetlab/cisco_sdwan-controller:20.15.4.1
-    # image: vrnetlab/cisco_sdwan-controller:20.15.1
   sdwan-validator:
     clab:
       type: validator
     device: linux
     image: vrnetlab/cisco_sdwan-validator:20.16.1
-    # image: vrnetlab/cisco_sdwan-validator:20.15.4.1
-    # image: vrnetlab/cisco_sdwan-validator:20.15.1
   edge1:
     module: [ bgp ]
     bgp.as: 65591
     bgp.sessions:
       ipv4: [ ebgp ]
     clab:
-      type: controller  # SD-WAN managed mode, remove the type if using autonomous mode
+      type: controller  # SD-WAN managed mode
+      env.QEMU_SMP: 4 ## increasing number of cores to 4 makes the cert installation more reliable
+      env.QEMU_MEMORY: 8192 ## increasing memory makes the cert installation more reliable
     device: cat8000v
     image: vrnetlab/cisco_c8000v:controller-17.15.04c # vrnetlab created two images for c8000v, this is the controller mode
   edge2:
@@ -94,7 +90,9 @@ nodes:
     bgp.sessions:
       ipv4: [ ebgp ]
     clab:
-      type: controller  # SD-WAN managed mode, remove the type if using autonomous mode
+      type: controller  # SD-WAN managed mode
+      env.QEMU_SMP: 4 ## increasing number of cores to 4 makes the cert installation more reliable
+      env.QEMU_MEMORY: 8192 ## increasing memory makes the cert installation more reliable
     device: cat8000v
     image: vrnetlab/cisco_c8000v:controller-17.15.04c # vrnetlab created two images for c8000v, this is the controller mode
   edge3:
@@ -103,9 +101,11 @@ nodes:
     bgp.sessions:
       ipv4: [ ebgp ]
     clab:
-      type: controller  # SD-WAN managed mode, remove the type if using autonomous mode
+      type: controller  # SD-WAN managed mode
+      env.QEMU_SMP: 4 ## increasing number of cores to 4 makes the cert installation more reliable
+      env.QEMU_MEMORY: 8192 ## increasing memory makes the cert installation more reliable
     device: cat8000v
-    image: vrnetlab/cisco_c8000v:controller-17.15.04c # for autonomous mode, use vrnetlab/cisco_c8000v:17.15.04c
+    image: vrnetlab/cisco_c8000v:controller-17.15.04c # vrnetlab created two images for c8000v, this is the controller mode
     
 links:
 ## SDWAN manager, validator and controller

@@ -1031,11 +1031,15 @@ def _run_edge_automation_body(
         # run, every chassis with the pipeline to itself installed (3/3) and every
         # chassis whose CSR overlapped another in-flight CSR failed (3/3).
         #
-        # That measurement predates `push_wan_edge_list`. The collisions were most
-        # likely edges racing vManage's implicit push of the serial list rather than
-        # racing each other, in which case pushing explicitly removes the need to
-        # serialize at all. Set `edge_serialize_activation: false` to run the
-        # activations concurrently and find out.
+        # That measurement predates `push_wan_edge_list`, and likely predates the
+        # real cause too: a lab where edge boot was CPU-starved (~25 min instead of
+        # ~9 min) reproduced the same 1m50s-3m CSR lag and 100% cert-install failure
+        # regardless of serialization, and cleared up once the edges got more
+        # vCPU/RAM (boot ~9 min, CSR lag ~1 min, concurrent activation 3/3 clean).
+        # So the "collision" was plausibly starved edges responding too slowly for
+        # vManage's signing window, not two CSRs genuinely racing each other. Set
+        # `edge_serialize_activation: false` to run activations concurrently — do
+        # that after ruling out slow edge boot, not instead of it.
         if not settings.serialize_activation:
             out.info("Activation serialization disabled; activating concurrently.")
         with (
