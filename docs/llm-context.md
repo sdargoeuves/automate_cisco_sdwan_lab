@@ -84,6 +84,14 @@ parallel. The root CA chain is installed once per edge per run — chassis
 regenerations skip the SCP + install because the root chain persists across
 chassis.
 
+Before treating a `certinstallfailed` streak as a serialization/collision
+problem, rule out edge-VM resource starvation first: a lab with CPU-starved
+edge boots (~25 min instead of ~9 min) failed cert install 100% of the time
+regardless of `edge_serialize_activation`, and cleared up once the edges got
+more `clab.env.QEMU_SMP`/`QEMU_MEMORY` — after which even concurrent (unserialized)
+activation installed cleanly. The 88%-contention measurement above is real, but
+may itself have been recorded on a resource-starved host.
+
 Fast-bail on missing chassis ID: if an edge has no recorded chassis ID during
 the fabric convergence gate, it failed before activation (SSH/config/cert issues)
 and is immediately marked for regeneration instead of waiting the full 600s

@@ -2,7 +2,7 @@
 
 Automate first-boot configuration and certificate enrollment for a Cisco SD-WAN lab
 (Manager, Validator, Controller, Edges). Primarily aimed at [netlab](https://netlab.tools)
-users, but works for any SD-WAN deployment where management IPs are reachable.
+users, and should also work for any Cisco SD-WAN deployment where management IPs are reachable.
 
 ![SD-WAN lab topology](img/Cisco%20SD-WAN%20-%20IPF%20Lab%20-%20whiteTR.drawio.png#gh-light-mode-only)
 ![SD-WAN lab topology](img/Cisco%20SD-WAN%20-%20IPF%20Lab%20-%20darkTR.drawio.png#gh-dark-mode-only)

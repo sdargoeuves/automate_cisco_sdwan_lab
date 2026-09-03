@@ -11,7 +11,7 @@ The pristine template lives inside the installed package at
 """
 
 import os
-import shutil
+from datetime import UTC, datetime
 from importlib.resources import as_file, files
 from pathlib import Path
 
@@ -59,5 +59,16 @@ def install_base_template(force: bool = False) -> tuple[Path, bool]:
 
     resource = files("utils.templates") / BUNDLED_TEMPLATE_NAME
     with as_file(resource) as src:
-        shutil.copyfile(src, dest)
+        template_text = Path(src).read_text()
+
+    created_at = datetime.now(UTC).strftime("%Y-%m-%d %H:%M UTC")
+    banner = (
+        "# ─────────────────────────────────────────────────────────────────────────────\n"
+        "# Created from the bundled template — edit freely, this file is yours to maintain.\n"
+        "#\n"
+        f"# Created : {created_at}\n"
+        f"# Source  : {src}\n"
+        "# ─────────────────────────────────────────────────────────────────────────────\n\n"
+    )
+    dest.write_text(banner + template_text)
     return dest, True

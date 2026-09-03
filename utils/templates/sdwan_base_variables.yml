@@ -44,7 +44,7 @@ timing:
   # Startup sequencing — delays between launching each component
   wait_before_automating_validator_seconds: 60
   wait_before_automating_controller_seconds: 120
-  manager_api_ready_timeout_seconds: 900        # how long to wait for the manager API after first boot
+  manager_api_ready_timeout_seconds: 900    # how long to wait for the manager API after first boot
 
   # Out-of-sync controller reboot — when vBond/vSmart come up out-of-sync we reboot them.
   # The reboot must finish (and the controller re-sync) before edges are configured;
@@ -101,24 +101,12 @@ timing:
   edge_transient_retry_max_attempts: 3
   edge_transient_retry_wait_seconds: 60
 
-  # Whether to serialize the activate -> cert-install cycle across edge workers
-  # (the lock described above).
-  #
-  # Measured over 37 deploys (18 serial / 19 parallel, two labs, interleaved),
-  # 2026-08-25 to 08-26:
-  #   serial    17/18 clean (94%)   1.43 chassis regenerations per run   ~45 min
-  #   parallel  15/19 clean (79%)   1.86 chassis regenerations per run   ~31 min
-  # Serial came out ahead in every batch and on every measure — never by much,
-  # but never behind either. An interim reading at 24 runs suggested the modes
-  # were equal and the default was briefly flipped to false; the larger sample
-  # did not support that, so it is back to true.
-  #
-  # After the netmiko read-timeout fix the speed gap narrowed to ~6 min
-  # (34 vs 28), which is a cheap price for the reliability difference.
-  #
-  # Set false to activate concurrently. Overridable per-run via the
-  # SDWAN_SERIALIZE_ACTIVATION environment variable.
-  edge_serialize_activation: true
+  # By default the edge router activations will be done in parallel.
+  # If you want to serialize the activation of the edges, set this to true.
+  # This is useful if you have a large number of edges and you want to avoid
+  # overwhelming the vManage with too many activations at once, or if you see
+  # issues with the activation process when done in parallel.
+  edge_serialize_activation: false
 
   # Sub-timeout applied *only* while a chassis is still at `tokengenerated`, i.e.
   # vManage has not even begun signing. This is not a shorter version of the hold
